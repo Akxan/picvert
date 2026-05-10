@@ -344,19 +344,22 @@ document.addEventListener("mouseup", () => {
   const wasDrag = dragging;
   press = null;
   dragging = false;
-  if (!wasDrag) {
-    triggerClickFx();
-    invoke("show_main_window");
-  }
+  if (!wasDrag) expandToMain();
 });
 
 capsule.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
-    triggerClickFx();
-    invoke("show_main_window");
+    expandToMain();
   }
 });
+
+/** Play the leave animation, then ask Rust to show the main window. */
+function expandToMain() {
+  triggerClickFx();
+  document.body.classList.add("leaving");
+  setTimeout(() => invoke("show_main_window"), 200);
+}
 
 function triggerClickFx() {
   capsule.classList.remove("is-clicked");

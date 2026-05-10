@@ -84,8 +84,18 @@ body {
 }
 
 @keyframes app-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Main window leave animation — collapse-to-capsule feel. */
+body.leaving {
+  animation: app-leave 220ms cubic-bezier(0.55, 0, 0.7, 0.2) forwards;
+  pointer-events: none;
+}
+@keyframes app-leave {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.86); }
 }
 
 /* ─────────────────────── atmospheric background blobs ─────────────────────── */

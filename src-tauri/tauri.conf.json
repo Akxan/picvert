@@ -55,7 +55,9 @@
     "resources": {
       "../dist/picvert-engine": "engine",
       "icons/tray.png": "icons/tray.png",
-      "icons/tray@2x.png": "icons/tray@2x.png"
+      "icons/tray@2x.png": "icons/tray@2x.png",
+      "icons/tray-win.png": "icons/tray-win.png",
+      "icons/tray-linux.png": "icons/tray-linux.png"
     },
     "macOS": {
       "minimumSystemVersion": "10.15"

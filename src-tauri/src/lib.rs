@@ -285,6 +285,17 @@ fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<(), String> {
     build_tray_with_labels(&app, &labels).map_err(|e| format!("rebuild tray: {e:#}"))
 }
 
+/// JS-driven hide-main-and-show-capsule, called after the main window's
+/// exit animation has finished. We don't intercept the OS close event in
+/// Rust any more (that ran before the animation could play).
+#[tauri::command]
+fn hide_main_show_compact(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+    show_compact_window(app)
+}
+
 /// Send a system notification (macOS Notification Center / Windows Action Center).
 #[tauri::command]
 async fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
@@ -367,6 +378,12 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("compact") {
         let _ = w.show();
         let _ = w.set_focus();
+        // Re-trigger the entrance animation each time the window is shown.
+        let _ = w.eval(
+            "document.body.classList.remove('entering');\
+             void document.body.offsetWidth;\
+             document.body.classList.add('entering');",
+        );
         return Ok(());
     }
     // First time: create the compact window.
@@ -467,11 +484,20 @@ fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
         return Ok(());
     }
 
-    // Load our custom monochrome tray icon (black-on-transparent template).
-    // Falls back to the app's default colourful icon if the file isn't there.
+    // Per-platform tray icon:
+    //   macOS  → tray.png        (black template, system handles theme)
+    //   Windows → tray-win.png   (khaki — visible on light AND dark taskbars)
+    //   Linux   → tray-linux.png (khaki, smaller indicator size)
+    let icon_resource = if cfg!(target_os = "macos") {
+        "icons/tray.png"
+    } else if cfg!(target_os = "windows") {
+        "icons/tray-win.png"
+    } else {
+        "icons/tray-linux.png"
+    };
     let tray_icon_image = app
         .path()
-        .resolve("icons/tray.png", tauri::path::BaseDirectory::Resource)
+        .resolve(icon_resource, tauri::path::BaseDirectory::Resource)
         .ok()
         .and_then(|p| std::fs::read(&p).ok())
         .and_then(|bytes| tauri::image::Image::from_bytes(&bytes).ok())
@@ -479,7 +505,9 @@ fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
 
     let mut builder = TrayIconBuilder::with_id("main")
         .icon(tray_icon_image)
-        .icon_as_template(true) // macOS: render as a template (auto light/dark)
+        // template-mode is macOS-only and only meaningful for the black icon;
+        // the coloured Windows/Linux icons should render as-is.
+        .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu);
     // macOS users expect left-click to open the menu (no primary action set);
     // Windows users expect right-click. Match the convention per platform.
@@ -540,18 +568,23 @@ pub fn run() {
             set_tray_labels,
             http_get_text,
             notify,
+            hide_main_show_compact,
         ])
+        // The main window's close button is intercepted in JS now (so the
+        // exit animation can play). We still prevent the default OS-level
+        // close (which would destroy the webview) — but the actual hide /
+        // show-compact happens via the hide_main_show_compact command after
+        // the animation finishes.
         .on_window_event(|window, event| {
-            // Closing the main window collapses the app into the floating
-            // capsule rather than quitting (we keep the engine alive for a
-            // fast re-expand). Quit goes through the tray menu.
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = window.hide();
-                    let app = window.app_handle();
-                    if let Err(e) = show_compact_window(app.clone()) {
-                        eprintln!("show_compact_window from close: {e}");
+                    // Tell JS to play the leave animation; JS will then call
+                    // hide_main_show_compact when the animation is done.
+                    if let Some(w) = window.app_handle().get_webview_window("main") {
+                        let _ = w.eval(
+                            "window.dispatchEvent(new Event('picvert:close-requested'))",
+                        );
                     }
                 }
             }

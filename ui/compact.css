@@ -19,6 +19,36 @@ html, body {
   color: #fefaf0;
 }
 
+/* Entrance animation — runs on first load and is re-triggered by Rust on
+   show via .entering class. Spring-back easing for a friendly pop. */
+body, body.entering {
+  animation: capsule-enter 320ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+@keyframes capsule-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Leave animation — capsule shrinks into nothing as the main window
+   blooms out. Same duration as main window's app-leave so they feel
+   coordinated. */
+body.leaving {
+  animation: capsule-leave 220ms cubic-bezier(0.55, 0, 0.7, 0.2) forwards;
+  pointer-events: none;
+}
+@keyframes capsule-leave {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.4); filter: blur(2px); }
+}
+
 /* The capsule "card". Horizontal layout: time | divider | weather. */
 #capsule {
   position: absolute;

@@ -477,6 +477,19 @@ window.addEventListener("picvert:check-updates", () => {
 });
 window.addEventListener("picvert:show-help", openHelp);
 
+// Close button (red traffic light) — Rust prevents the OS-level close and
+// emits this event so we can play a leave animation before collapsing
+// into the floating capsule.
+window.addEventListener("picvert:close-requested", () => {
+  document.body.classList.add("leaving");
+  setTimeout(() => {
+    invoke("hide_main_show_compact").finally(() => {
+      // Reset for next time the window is shown.
+      document.body.classList.remove("leaving");
+    });
+  }, 200);
+});
+
 // ─── keyboard shortcuts ───────────────────────────────────────────────────
 
 document.addEventListener("keydown", (e) => {
