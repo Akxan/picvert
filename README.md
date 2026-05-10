@@ -1,107 +1,81 @@
 # Picvert
 
-Batch convert images, PDFs, and Office documents through a single Tkinter GUI
-— drag-and-drop, multi-language, multi-threaded.
+Cross-platform batch converter for images, PDFs, and Office documents.
+A native desktop shell (Tauri) backed by a Python engine.
 
 | | |
 |---|---|
-| **Author** | Julio (Akxan) |
-| **Version** | 1.1.0 |
-| **Languages** | English / Español / Русский / 中文 |
+| **Platforms** | macOS · Windows · Linux |
+| **Auto-update** | ✅ via GitHub Releases |
+| **License** | Apache-2.0 |
 
-## Features
+## Architecture
 
-- 🖼️ **Images** — PNG, JPEG, JFIF, BMP, GIF, TIFF, WEBP, ICO, PPM, TGA,
-  JPEG2000, SVG, and **HEIC** (read & write, via `pillow-heif`)
-- 📄 **PDF** → image (every page, 3× zoom)
-- 📊 **Documents** — real conversion across **DOCX ↔ XLSX ↔ CSV**
-- 🌐 4-language UI with hot-swap from the menu
-- 🪟 Drag-and-drop, multi-file batch, async progress bar
-- 🔒 Single-instance lock (`localhost:9999`)
-
-## Install (development)
-
-Requires **Python 3.10+** with a working Tkinter.
-
-```bash
-git clone https://github.com/Akxan/picvert.git
-cd picvert
-python3 -m venv .venv
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt
+```
+┌─────────────────────────────────────┐
+│ Tauri shell (Rust + WebView)         │  src-tauri/  +  ui/
+│  - Window, drag/drop, dialogs       │
+│  - Auto-updater (GitHub Releases)   │
+└────────────┬────────────────────────┘
+             │ stdin/stdout JSON
+┌────────────▼────────────────────────┐
+│ picvert-engine sidecar (Python)     │  picvert/
+│  - Image / PDF / docx / xlsx / csv  │
+└─────────────────────────────────────┘
 ```
 
-### Tkinter / drag-drop note
+The engine is the only place that touches Pillow, PyMuPDF, openpyxl, etc.;
+the Tauri shell stays small (~10 MB) and the engine ships as a single
+PyInstaller binary (~22 MB on macOS arm64).
 
-The `tkinterdnd2` C extension is currently built against **Tcl/Tk 8.6** and
-will not load on Tk 9.x. If `python -m picvert` fails with
-`Unable to load tkdnd library` (or `tkdnd_Init symbol not found`), use a
-Python whose Tk is still 8.6:
-
-- **macOS**: install Python from [python.org](https://www.python.org/downloads/)
-  — the official installer ships Tk 8.6. Homebrew Python now uses Tk 9.
-- **Windows**: the official installer ships Tk 8.6.
-- **Linux**: most distros still ship Tk 8.6 via `python3-tk`.
-
-The conversion engine itself does not need Tk and is fully covered by tests
-that run on any Python.
-
-## Run
-
-```bash
-python -m picvert
-# or, after `pip install .`
-picvert
-```
-
-## Test
-
-```bash
-pytest -v
-```
-
-## Build a standalone app
-
-```bash
-python build_app.py --clean
-```
-
-Outputs:
-
-| Platform | Artifact |
-|---|---|
-| macOS | `dist/Picvert.app` |
-| Windows | `dist/Picvert/Picvert.exe` |
-| Linux | `dist/Picvert/Picvert` |
-
-## Project layout
+## Repository layout
 
 ```
 picvert/
-├── picvert/
-│   ├── __init__.py
-│   ├── __main__.py          # entry point
-│   ├── constants.py         # supported formats, version, ports
-│   ├── config.py            # config.json read/write
-│   ├── i18n.py              # translations + _() helper
-│   ├── single_instance.py   # localhost-port lock
-│   ├── gui.py               # ImageConverterApp (Tkinter)
-│   └── converters/
-│       ├── __init__.py      # convert_file dispatcher
-│       ├── image.py         # Pillow-based, includes HEIC
-│       ├── pdf.py           # PyMuPDF page-by-page
-│       ├── svg.py           # PNG embedded in SVG container
-│       └── document.py      # docx/xlsx/csv with python-docx + openpyxl
-├── tests/
-│   └── test_converters.py   # 16 pytest cases
-├── build_app.py             # PyInstaller wrapper
-├── picvert.spec             # PyInstaller spec
+├── picvert/                    # Python engine
+│   ├── cli.py                  # JSON-RPC stdio (sidecar entry)
+│   ├── converters/             # image / pdf / svg / document
+│   ├── constants.py / i18n.py / config.py / paths.py / single_instance.py
+├── ui/                         # Frontend (vanilla HTML/CSS/JS)
+├── src-tauri/                  # Tauri shell
+│   ├── src/                    # Rust glue
+│   ├── tauri.conf.json
+│   └── icons/
+├── tests/                      # pytest, 36 tests
+├── scripts/build_sidecar.sh    # build the engine binary for the host
+├── engine.spec                 # PyInstaller spec
 ├── pyproject.toml
-├── requirements.txt
-└── requirements-dev.txt
+├── docs/RELEASING.md           # how to ship a new version
+└── .github/workflows/release.yml
 ```
 
-## Document conversion matrix
+## Local development
+
+Prerequisites: Python 3.10+, Rust (rustup), Node 20+, Xcode CLT (macOS).
+
+```bash
+# 1. Python engine
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest -q                                          # 36 tests pass
+
+# 2. Build the sidecar binary for your host
+./scripts/build_sidecar.sh
+
+# 3. Tauri dev shell (hot-reload of the UI)
+cargo install tauri-cli --version "^2.0.0" --locked
+cd src-tauri
+cargo tauri dev
+```
+
+## Building a release
+
+See [docs/RELEASING.md](docs/RELEASING.md). TL;DR: bump versions, push a
+`v*.*.*` tag, GitHub Actions builds and publishes signed bundles for
+macOS (arm64 + x86_64) and Windows.
+
+## Document-conversion matrix
 
 ```
 target →     DOCX   XLSX   CSV
@@ -110,20 +84,9 @@ XLSX           ✓      ✓¹    ✓²
 CSV            ✓      ✓     ✓¹
 
 ¹ same-format → file copy
-² xlsx → csv writes the first sheet only
+² xlsx → csv writes one csv per sheet (no data loss)
 ```
-
-## Notes & limitations
-
-- **SVG output** is a Base64-PNG embedded in an SVG container — not real
-  vectorisation. It is the best you can do without an upstream tracer
-  (e.g. potrace).
-- **Legacy `.xls` and `.doc`** are intentionally not supported. Save them as
-  `.xlsx`/`.docx` first; the modern formats are clean to handle, the legacy
-  binary blobs are not.
-- HEIC support requires libheif at runtime — `pillow-heif` ships it on
-  macOS / Linux / Windows wheels, no extra system packages needed.
 
 ## License
 
-MIT
+Apache-2.0 — see [LICENSE](LICENSE).

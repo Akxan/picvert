@@ -14,6 +14,11 @@ build/
 dist/
 *.spec.bak
 
+# Tauri / Rust
+src-tauri/target/
+src-tauri/binaries/picvert-engine-*
+src-tauri/gen/
+
 # App runtime artifacts
 app.log
 config.json

@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14            # arm64
+            target: aarch64-apple-darwin
+            host_python: "3.12"
+          - os: macos-13            # intel x86_64
+            target: x86_64-apple-darwin
+            host_python: "3.12"
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            host_python: "3.12"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ─────────────────── Python sidecar build ───────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.host_python }}
+
+      - name: Install Python deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run Python tests
+        shell: bash
+        run: pytest -q
+
+      - name: Build picvert-engine binary
+        shell: bash
+        run: |
+          python -m PyInstaller engine.spec --clean --noconfirm
+          mkdir -p src-tauri/binaries
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp "dist/picvert-engine.exe" "src-tauri/binaries/picvert-engine-${{ matrix.target }}.exe"
+          else
+            cp "dist/picvert-engine" "src-tauri/binaries/picvert-engine-${{ matrix.target }}"
+            chmod +x "src-tauri/binaries/picvert-engine-${{ matrix.target }}"
+          fi
+
+      # ─────────────────── Rust + Tauri build ───────────────────
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
+      - name: Build Tauri bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cargo tauri build --target ${{ matrix.target }}
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          mkdir -p _release
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg _release/ || true
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz _release/ || true
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig _release/ || true
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi _release/ || true
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe _release/ || true
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe.sig _release/ || true
+          fi
+          ls -la _release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: picvert-${{ matrix.target }}
+          path: _release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: _artifacts
+
+      - name: Generate latest.json (Tauri updater manifest)
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          version="${TAG#v}"
+          owner_repo="${{ github.repository }}"
+          base="https://github.com/${owner_repo}/releases/download/${TAG}"
+          notes=$(git log -1 --pretty=%B "$TAG" || echo "Release $TAG")
+
+          # Tauri's updater format: per-platform URL + signature.
+          # Sigs are produced by `cargo tauri build` next to each artifact.
+          jq -n \
+            --arg version "$version" \
+            --arg notes "$notes" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg base "$base" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {}
+            }' > latest.json
+
+          # Helper to append a platform entry from the matching .sig file.
+          add_platform() {
+            local key="$1"
+            local sig_file="$2"
+            local pkg_file="$3"
+            if [ -f "$sig_file" ] && [ -f "$pkg_file" ]; then
+              sig=$(cat "$sig_file")
+              pkg_name=$(basename "$pkg_file")
+              jq --arg key "$key" \
+                 --arg sig "$sig" \
+                 --arg url "$base/$pkg_name" \
+                 '.platforms[$key] = {signature: $sig, url: $url}' \
+                 latest.json > latest.json.tmp && mv latest.json.tmp latest.json
+            fi
+          }
+
+          shopt -s nullglob
+          for sig in _artifacts/picvert-aarch64-apple-darwin/*.app.tar.gz.sig; do
+            add_platform "darwin-aarch64" "$sig" "${sig%.sig}"
+          done
+          for sig in _artifacts/picvert-x86_64-apple-darwin/*.app.tar.gz.sig; do
+            add_platform "darwin-x86_64" "$sig" "${sig%.sig}"
+          done
+          for sig in _artifacts/picvert-x86_64-pc-windows-msvc/*.exe.sig; do
+            add_platform "windows-x86_64" "$sig" "${sig%.sig}"
+          done
+
+          cat latest.json
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            _artifacts/**/*
+            latest.json
+          generate_release_notes: true
+          fail_on_unmatched_files: false

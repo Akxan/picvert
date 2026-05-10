@@ -1,0 +1,180 @@
+/* Picvert v2 — minimal, clean, system-font theme */
+:root {
+  color-scheme: light dark;
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #6b6b6b;
+  --border: #e0e0e0;
+  --accent: #4f46e5;
+  --accent-fg: #fff;
+  --danger: #dc2626;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181818;
+    --fg: #ededed;
+    --muted: #9a9a9a;
+    --border: #2c2c2c;
+    --accent: #818cf8;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+.subtitle {
+  margin: 0.25rem 0 1.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 2.5rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.dropzone:hover,
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: rgba(79, 70, 229, 0.05);
+}
+.dropzone-prompt {
+  margin: 0;
+  color: var(--muted);
+}
+
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+.controls label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.controls select,
+.controls button {
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.controls select {
+  min-width: 8rem;
+}
+.controls button#convert-btn {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: transparent;
+  font-weight: 600;
+}
+.controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-list {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+  min-height: 4rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.file-list .empty {
+  margin: 0;
+  padding: 1.25rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.file-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+.file-row + .file-row {
+  margin-top: 0.25rem;
+}
+.file-row:hover {
+  background: rgba(127, 127, 127, 0.08);
+}
+.file-row .name {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-row .status {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-left: 0.75rem;
+}
+.file-row .status.ok {
+  color: #16a34a;
+}
+.file-row .status.err {
+  color: var(--danger);
+}
+
+.progress {
+  margin-top: 1rem;
+}
+.progress.hidden {
+  display: none;
+}
+.bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 200ms ease;
+}
+#progress-text {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+footer {
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}

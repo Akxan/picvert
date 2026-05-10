@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Picvert</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Picvert</h1>
+      <p class="subtitle">Batch image / PDF / document converter</p>
+    </header>
+
+    <main>
+      <section id="dropzone" class="dropzone">
+        <p class="dropzone-prompt">Drop files here or click to select</p>
+        <input id="file-input" type="file" multiple hidden />
+      </section>
+
+      <section class="controls">
+        <label for="format-select">Output format:</label>
+        <select id="format-select"></select>
+        <button id="convert-btn">Start Conversion</button>
+        <button id="clear-btn">Clear</button>
+      </section>
+
+      <section id="file-list" class="file-list">
+        <p class="empty">No files yet.</p>
+      </section>
+
+      <section id="progress" class="progress hidden">
+        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+        <p id="progress-text">0 / 0</p>
+      </section>
+    </main>
+
+    <footer>
+      <span id="version">v—</span>
+      <span id="engine-status">Engine: …</span>
+    </footer>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
