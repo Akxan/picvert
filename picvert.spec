@@ -46,7 +46,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # UPX rarely installed on macOS; keep build deterministic
     console=False,  # GUI app — no terminal window
     disable_windowed_traceback=False,
     target_arch=None,
@@ -59,7 +59,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # UPX rarely installed on macOS; keep build deterministic
     upx_exclude=[],
     name="Picvert",
 )

@@ -140,7 +140,16 @@ def _detect_default_language() -> str:
     return sys_lang if sys_lang in SUPPORTED_LANGS else "en"
 
 
-current_lang: str = load_config().get("language", _detect_default_language())
+# Lazily resolved on first use — never read the config file at import time so
+# the package can be imported in tests / CI / sandboxed contexts safely.
+current_lang: str | None = None
+
+
+def _ensure_loaded() -> str:
+    global current_lang
+    if current_lang is None:
+        current_lang = load_config().get("language", _detect_default_language())
+    return current_lang
 
 
 def set_language(lang: str) -> None:
@@ -151,7 +160,8 @@ def set_language(lang: str) -> None:
 
 
 def _(key: str, **kwargs) -> str:
-    text = translations.get(current_lang, translations["en"]).get(key, key)
+    lang = _ensure_loaded()
+    text = translations.get(lang, translations["en"]).get(key, key)
     return text.format(**kwargs)
 
 
