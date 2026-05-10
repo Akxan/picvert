@@ -69,6 +69,20 @@ cd src-tauri
 cargo tauri dev
 ```
 
+## Black-box testing
+
+The packaged `picvert-engine` binary has its own loop tester independent of
+`pytest` — it catches packaging issues (missing PyInstaller hidden imports,
+runtime path mistakes, etc.) that source-level tests can't.
+
+```bash
+# 25 cases, each run multiple rounds
+python scripts/loop_test_engine.py --rounds 5
+
+# Cold-start vs persistent-sidecar wall-clock comparison
+python scripts/bench_engine.py --calls 5
+```
+
 ## Building a release
 
 See [docs/RELEASING.md](docs/RELEASING.md). TL;DR: bump versions, push a
