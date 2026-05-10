@@ -26,6 +26,7 @@ dev = ["pytest>=8.0", "pyinstaller>=6.6"]
 
 [project.scripts]
 picvert = "picvert.__main__:main"
+picvert-engine = "picvert.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["picvert*"]
