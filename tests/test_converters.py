@@ -14,8 +14,8 @@ from PIL import Image
 from docx import Document
 from openpyxl import Workbook, load_workbook
 
-from converter_box.converters import UnsupportedConversion, convert_file
-from converter_box.converters.image import HEIC_AVAILABLE
+from picvert.converters import UnsupportedConversion, convert_file
+from picvert.converters.image import HEIC_AVAILABLE
 
 
 # --------------------------------------------------------------------- helpers

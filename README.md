@@ -1,4 +1,4 @@
-# Converter BOX (python-image)
+# Picvert
 
 Batch convert images, PDFs, and Office documents through a single Tkinter GUI
 — drag-and-drop, multi-language, multi-threaded.
@@ -24,8 +24,8 @@ Batch convert images, PDFs, and Office documents through a single Tkinter GUI
 Requires **Python 3.10+** with a working Tkinter.
 
 ```bash
-git clone https://github.com/Akxan/python-image.git
-cd python-image
+git clone https://github.com/Akxan/picvert.git
+cd picvert
 python3 -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
@@ -34,7 +34,7 @@ pip install -r requirements-dev.txt
 ### Tkinter / drag-drop note
 
 The `tkinterdnd2` C extension is currently built against **Tcl/Tk 8.6** and
-will not load on Tk 9.x. If `python -m converter_box` fails with
+will not load on Tk 9.x. If `python -m picvert` fails with
 `Unable to load tkdnd library` (or `tkdnd_Init symbol not found`), use a
 Python whose Tk is still 8.6:
 
@@ -49,9 +49,9 @@ that run on any Python.
 ## Run
 
 ```bash
-python -m converter_box
+python -m picvert
 # or, after `pip install .`
-converter-box
+picvert
 ```
 
 ## Test
@@ -70,15 +70,15 @@ Outputs:
 
 | Platform | Artifact |
 |---|---|
-| macOS | `dist/ConverterBox.app` |
-| Windows | `dist/ConverterBox/ConverterBox.exe` |
-| Linux | `dist/ConverterBox/ConverterBox` |
+| macOS | `dist/Picvert.app` |
+| Windows | `dist/Picvert/Picvert.exe` |
+| Linux | `dist/Picvert/Picvert` |
 
 ## Project layout
 
 ```
-python-image/
-├── converter_box/
+picvert/
+├── picvert/
 │   ├── __init__.py
 │   ├── __main__.py          # entry point
 │   ├── constants.py         # supported formats, version, ports
@@ -95,7 +95,7 @@ python-image/
 ├── tests/
 │   └── test_converters.py   # 16 pytest cases
 ├── build_app.py             # PyInstaller wrapper
-├── converter_box.spec       # PyInstaller spec
+├── picvert.spec             # PyInstaller spec
 ├── pyproject.toml
 ├── requirements.txt
 └── requirements-dev.txt

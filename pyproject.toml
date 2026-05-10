@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "converter-box"
+name = "picvert"
 version = "1.1.0"
 description = "Batch image / PDF / document format converter with a Tkinter GUI"
 readme = "README.md"
@@ -24,7 +24,7 @@ dependencies = [
 dev = ["pytest>=8.0", "pyinstaller>=6.6"]
 
 [project.scripts]
-converter-box = "converter_box.__main__:main"
+picvert = "picvert.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["converter_box*"]
+include = ["picvert*"]

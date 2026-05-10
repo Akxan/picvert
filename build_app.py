@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Build a standalone Converter BOX binary using PyInstaller.
+"""Build a standalone Picvert binary using PyInstaller.
 
 Outputs:
-    macOS:   dist/ConverterBox.app  +  dist/ConverterBox/
-    Windows: dist/ConverterBox/ConverterBox.exe
-    Linux:   dist/ConverterBox/ConverterBox
+    macOS:   dist/Picvert.app  +  dist/Picvert/
+    Windows: dist/Picvert/Picvert.exe
+    Linux:   dist/Picvert/Picvert
 
 Usage:
     python build_app.py            # full build
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-SPEC = ROOT / "converter_box.spec"
+SPEC = ROOT / "picvert.spec"
 
 
 def main() -> int:
@@ -41,10 +41,10 @@ def main() -> int:
 
     dist = ROOT / "dist"
     print(f"\n✅ Build complete. Artifacts in: {dist}")
-    if (dist / "ConverterBox.app").exists():
-        print(f"   • macOS app bundle: {dist / 'ConverterBox.app'}")
-    if (dist / "ConverterBox").exists():
-        print(f"   • Folder distribution: {dist / 'ConverterBox'}")
+    if (dist / "Picvert.app").exists():
+        print(f"   • macOS app bundle: {dist / 'Picvert.app'}")
+    if (dist / "Picvert").exists():
+        print(f"   • Folder distribution: {dist / 'Picvert'}")
     return 0
 
 

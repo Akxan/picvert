@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Converter BOX.
+"""PyInstaller spec for Picvert.
 
 Build with:
     python build_app.py
 
 Or directly:
-    pyinstaller converter_box.spec --clean --noconfirm
+    pyinstaller picvert.spec --clean --noconfirm
 """
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
@@ -23,7 +23,7 @@ hiddenimports = (
 
 
 a = Analysis(
-    ["converter_box/__main__.py"],
+    ["picvert/__main__.py"],
     pathex=[],
     binaries=[],
     datas=datas,
@@ -42,7 +42,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="ConverterBox",
+    name="Picvert",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -61,17 +61,17 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="ConverterBox",
+    name="Picvert",
 )
 
 # macOS .app bundle.
 app = BUNDLE(
     coll,
-    name="ConverterBox.app",
+    name="Picvert.app",
     icon=None,
-    bundle_identifier="com.akxan.converterbox",
+    bundle_identifier="com.akxan.picvert",
     info_plist={
-        "CFBundleDisplayName": "Converter BOX",
+        "CFBundleDisplayName": "Picvert",
         "CFBundleShortVersionString": "1.1.0",
         "CFBundleVersion": "1.1.0",
         "NSHighResolutionCapable": True,

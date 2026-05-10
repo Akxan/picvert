@@ -1,4 +1,4 @@
-"""Entry point: `python -m converter_box` or the `converter-box` console script."""
+"""Entry point: `python -m picvert` or the `picvert` console script."""
 from __future__ import annotations
 
 import sys
@@ -22,9 +22,9 @@ def main() -> int:
         return 0
 
     try:
-        # Imported lazily so headless tests / CI can `import converter_box` without Tk + DnD.
+        # Imported lazily so headless tests / CI can `import picvert` without Tk + DnD.
         from .gui import run_app
-        logger.info("Starting Converter BOX")
+        logger.info("Starting Picvert")
         run_app()
     finally:
         lock.close()

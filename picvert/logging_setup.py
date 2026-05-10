@@ -16,4 +16,4 @@ def configure_logging(level: int = logging.INFO) -> logging.Logger:
             logging.FileHandler(LOG_FILE, encoding="utf-8"),
         ],
     )
-    return logging.getLogger("converter_box")
+    return logging.getLogger("picvert")
