@@ -52,9 +52,14 @@ function applyTranslations() {
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
-  // Things not handled by data-i18n (dynamic state):
+  // Re-render dynamic engine status with the fresh language.
   if (engineReadyMessage) {
-    engineStatusEl.textContent = engineReadyMessage(t);
+    const state = document.body.classList.contains("engine-loading")
+      ? "loading"
+      : document.body.classList.contains("engine-ready")
+        ? "ready"
+        : "error";
+    setEngineStatus(state, engineReadyMessage(t));
   }
   // Re-render file rows so localised "queued" / "ok" / "error: ..." update.
   render();
@@ -80,24 +85,38 @@ onLangChange(applyTranslations);
 
 // ─────────────────────────────────────────────────── engine init
 
+/** Render the engine status with an inline spinner while loading. */
+function setEngineStatus(state, message) {
+  engineStatusEl.innerHTML = "";
+  if (state === "loading") {
+    const sp = document.createElement("span");
+    sp.className = "spinner";
+    engineStatusEl.appendChild(sp);
+  }
+  engineStatusEl.appendChild(document.createTextNode(message));
+}
+
 async function init() {
   buildLangPicker();
 
-  // Show "starting…" immediately so the user doesn't see a stale English
-  // placeholder during the ~6 s sidecar cold start.
+  // Loading state — body.engine-loading dims the main area, button stays off.
+  document.body.classList.add("engine-loading");
   engineReadyMessage = (tt) => tt("engine_loading");
   convertBtn.disabled = true;
   applyTranslations();
+  setEngineStatus("loading", t("engine_loading"));
 
   try {
     const ping = await invoke("engine_ping");
     versionEl.textContent = `v${ping.version}`;
     engineReadyMessage = (tt) => tt("engine_ready");
-    engineStatusEl.textContent = engineReadyMessage(t);
+    setEngineStatus("ready", engineReadyMessage(t));
+    document.body.classList.remove("engine-loading");
+    document.body.classList.add("engine-ready");
     convertBtn.disabled = false;
   } catch (err) {
     engineReadyMessage = (tt) => tt("engine_error", { err: errMessage(err) });
-    engineStatusEl.textContent = engineReadyMessage(t);
+    setEngineStatus("error", engineReadyMessage(t));
   }
 
   try {

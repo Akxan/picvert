@@ -1,8 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for the picvert-engine sidecar binary.
 
-Produces a single console executable that the Tauri shell will spawn as a
-child process and drive over stdin/stdout JSON.
+Produces dist/picvert-engine/  (a folder, --onedir mode), because
+--onefile would self-extract to /tmp on every spawn and cost ~6.5 s of
+cold-start latency. --onedir keeps everything pre-extracted so cold
+start drops to ~0.3 s — visible UX improvement on every launch.
+
+The Tauri shell ships this folder as `bundle.resources` and spawns
+`<resource_dir>/engine/picvert-engine` directly.
 
 Build with:
     pyinstaller engine.spec --clean --noconfirm
@@ -38,19 +43,27 @@ pyz = PYZ(a.pure, a.zipped_data)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,        # --onedir: deps live alongside, not inside
     name="picvert-engine",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    runtime_tmpdir=None,
-    console=True,         # sidecar — must keep stdin/stdout
+    console=True,                 # sidecar — must keep stdin/stdout
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="picvert-engine",        # → dist/picvert-engine/
 )

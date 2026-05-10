@@ -37,7 +37,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/picvert-engine"],
+    "resources": {
+      "../dist/picvert-engine": "engine"
+    },
     "macOS": {
       "minimumSystemVersion": "10.15"
     }

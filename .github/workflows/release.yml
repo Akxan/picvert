@@ -46,17 +46,13 @@ jobs:
         shell: bash
         run: pytest -q
 
-      - name: Build picvert-engine binary
+      - name: Build picvert-engine binary (--onedir)
         shell: bash
         run: |
+          # Builds dist/picvert-engine/  (folder layout — Tauri picks it up
+          # from tauri.conf.json `bundle.resources`).
           python -m PyInstaller engine.spec --clean --noconfirm
-          mkdir -p src-tauri/binaries
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp "dist/picvert-engine.exe" "src-tauri/binaries/picvert-engine-${{ matrix.target }}.exe"
-          else
-            cp "dist/picvert-engine" "src-tauri/binaries/picvert-engine-${{ matrix.target }}"
-            chmod +x "src-tauri/binaries/picvert-engine-${{ matrix.target }}"
-          fi
+          ls -la dist/picvert-engine | head
 
       # ─────────────────── Rust + Tauri build ───────────────────
       - uses: dtolnay/rust-toolchain@stable

@@ -22,7 +22,22 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::oneshot;
 
-const SIDECAR_NAME: &str = "picvert-engine";
+const SIDECAR_BIN: &str = if cfg!(windows) {
+    "picvert-engine.exe"
+} else {
+    "picvert-engine"
+};
+
+/// Locate the picvert-engine binary inside the bundle's resources.
+/// In dev (`cargo tauri dev`) this resolves under target/.../resources/engine/;
+/// in a built .app it lands under Picvert.app/Contents/Resources/engine/.
+fn engine_path(app: &AppHandle) -> Result<std::path::PathBuf> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| anyhow!("resolve resource_dir: {e}"))?;
+    Ok(resource_dir.join("engine").join(SIDECAR_BIN))
+}
 
 // ---------------------------------------------------------------- error type
 
@@ -74,13 +89,13 @@ impl EngineHandle {
             return Ok(e.clone());
         }
 
+        let path = engine_path(app)?;
         let (mut rx, child) = app
             .shell()
-            .sidecar(SIDECAR_NAME)
-            .map_err(|e| anyhow!("locate sidecar {SIDECAR_NAME}: {e}"))?
+            .command(&path)
             .args(["--line-mode"])
             .spawn()
-            .map_err(|e| anyhow!("spawn sidecar: {e}"))?;
+            .map_err(|e| anyhow!("spawn engine at {}: {e}", path.display()))?;
 
         let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));

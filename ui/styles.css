@@ -33,6 +33,41 @@ body {
     Arial, sans-serif;
   background: var(--bg);
   color: var(--fg);
+  /* Fade-in on first paint so it doesn't feel "popped in". */
+  animation: app-fade-in 240ms ease-out;
+}
+
+@keyframes app-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* When the engine is still starting, dim the UI slightly + show a spinner
+   beside the status text. The .ready class is added by main.js once
+   engine_ping returns. */
+body.engine-loading main {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+body.engine-ready main {
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+.spinner {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.4em;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+  vertical-align: -0.1em;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .header-row {
