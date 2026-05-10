@@ -40,4 +40,7 @@ OUTPUT_FORMAT_LIST = list(FORMAT_MAPPING.keys())
 DOC_OUTPUT_FORMATS = {"DOCX", "XLSX", "CSV"}
 IMAGE_OUTPUT_FORMATS = set(FORMAT_MAPPING) - DOC_OUTPUT_FORMATS
 
-SINGLE_INSTANCE_PORT = 9999
+# A high, application-specific port. 9999 was a published convention for
+# urbackup/distccmon and produced false-positive "another instance" dialogs
+# when those tools were running.
+SINGLE_INSTANCE_PORT = 53917

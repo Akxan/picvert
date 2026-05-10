@@ -97,6 +97,32 @@ class TestImageConversion:
         with Image.open(out) as img:
             assert img.size == (20, 20)
 
+    @pytest.mark.skipif(not HEIC_AVAILABLE, reason="pillow-heif not installed")
+    def test_heic_to_png(self, tmp_path: Path) -> None:
+        """The reverse direction matters too — phones produce HEIC."""
+        # Create a HEIC file via the same converter, then convert back.
+        png = _make_png(tmp_path / "src.png", color=(10, 200, 30))
+        convert_file(png, tmp_path, "HEIC")
+        heic_path = tmp_path / "src.heic"
+        assert heic_path.exists()
+        n = convert_file(heic_path, tmp_path / "out", "PNG")
+        assert n == 1
+        with Image.open(tmp_path / "out" / "src.png") as img:
+            assert img.size == (20, 20)
+
+    def test_truncated_png_raises(self, tmp_path: Path) -> None:
+        """Garbage input doesn't crash the dispatcher silently."""
+        bad = tmp_path / "bad.png"
+        bad.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 4)  # PNG header, then nothing
+        with pytest.raises(Exception):  # Pillow's UnidentifiedImageError or subclass
+            convert_file(bad, tmp_path / "out", "JPEG")
+
+    def test_unknown_output_format_rejected(self, tmp_path: Path) -> None:
+        """Critical regression: previously fell back to JPEG silently (C1)."""
+        src = _make_png(tmp_path / "in.png")
+        with pytest.raises(UnsupportedConversion):
+            convert_file(src, tmp_path / "out", "BOGUS")
+
 
 # -------------------------------------------------------------- document tests
 class TestDocumentConversion:
