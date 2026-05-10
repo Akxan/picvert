@@ -1,0 +1,71 @@
+/* Picvert compact / capsule mode — a draggable always-on-top button.
+   The window itself is transparent + frameless; we render a circle with a
+   subtle drop shadow + glassy fill. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+#capsule {
+  width: 80px;
+  height: 80px;
+  margin: 8px;                      /* leaves 8px breathing room for the shadow */
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: linear-gradient(135deg, #7a9cad 0%, #9d95ab 100%);
+  color: white;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  cursor: grab;                     /* hint that this is draggable */
+  box-shadow:
+    0 6px 20px rgba(122, 156, 173, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+  animation: capsule-pulse 3s ease-in-out infinite;
+}
+
+#capsule:hover {
+  transform: scale(1.06);
+  box-shadow:
+    0 8px 28px rgba(122, 156, 173, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+#capsule:active {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+
+/* Subtle breathing animation so it feels "alive" not just a sticker. */
+@keyframes capsule-pulse {
+  0%, 100% {
+    box-shadow:
+      0 6px 20px rgba(122, 156, 173, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 6px 24px rgba(122, 156, 173, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+}
+
+/* When a file is dragged over, swell + recolour to invite the drop. */
+body.dragover #capsule {
+  background: linear-gradient(135deg, #c9a87c 0%, #c4a6a0 100%);
+  transform: scale(1.15);
+  box-shadow:
+    0 10px 32px rgba(201, 168, 124, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}

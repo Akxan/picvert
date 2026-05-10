@@ -14,10 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# devtools feature stays on so Cmd+Opt+I still opens the inspector when we
-# need to debug. The right-click "Inspect Element" / "Reload" context menu
-# is suppressed by ui/main.js so production users don't see it.
-tauri = { version = "2", features = ["devtools"] }
+# - devtools: Cmd+Opt+I still opens the inspector when we need to debug
+#   (right-click context menu is suppressed in JS for production users).
+# - tray-icon: macOS menu-bar / Windows system-tray icon API.
+# - macos-private-api: required for the transparent compact-mode window.
+tauri = { version = "2", features = ["protocol-asset", "devtools", "tray-icon", "macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"

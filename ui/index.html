@@ -26,6 +26,23 @@
         <input id="file-input" type="file" multiple hidden />
       </section>
 
+      <section class="output-bar">
+        <span class="muted" data-i18n="output_label">Output:</span>
+        <span id="output-folder" class="output-path muted" data-i18n="output_unset"
+          >(not set — pick when you start)</span
+        >
+        <button id="change-output-btn" class="btn-secondary" data-i18n="btn_change_output">
+          Change
+        </button>
+        <button
+          id="open-output-btn"
+          class="btn-secondary hidden"
+          data-i18n="btn_open_output"
+        >
+          Open output folder
+        </button>
+      </section>
+
       <section class="controls">
         <label for="format-select" data-i18n="label_output_format">Output format:</label>
         <select id="format-select"></select>
@@ -40,6 +57,7 @@
       <section id="progress" class="progress hidden">
         <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
         <p id="progress-text">0 / 0</p>
+        <p id="progress-summary" class="muted hidden"></p>
       </section>
     </main>
 
@@ -47,6 +65,32 @@
       <span id="version">v—</span>
       <span id="engine-status">Engine: …</span>
     </footer>
+
+    <!-- About / Check Updates dialog (shown by tray menu actions) -->
+    <dialog id="about-dialog" class="dialog">
+      <h2 data-i18n="about_title">About Picvert</h2>
+      <p>
+        <strong>Picvert</strong>
+        <span id="about-version">v—</span>
+      </p>
+      <p data-i18n="about_blurb">
+        Cross-platform batch converter for images, PDFs, and Office documents.
+      </p>
+      <p>
+        <span data-i18n="about_author_label">Author</span>: Julio (Akxan)<br />
+        <span data-i18n="about_license_label">License</span>: Apache-2.0
+      </p>
+      <p>
+        <a href="https://github.com/Akxan/picvert" target="_blank" rel="noopener"
+          >github.com/Akxan/picvert</a
+        >
+      </p>
+      <p id="update-status" class="muted"></p>
+      <div class="dialog-actions">
+        <button id="check-updates-btn" data-i18n="btn_check_updates">Check for updates</button>
+        <button id="about-close-btn" data-i18n="btn_close">Close</button>
+      </div>
+    </dialog>
 
     <script type="module" src="main.js"></script>
   </body>

@@ -16,7 +16,9 @@ use std::sync::{
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager, State};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -248,11 +250,112 @@ async fn pick_output_folder(app: AppHandle) -> Option<String> {
     rx.recv().ok().flatten().map(|p| p.to_string())
 }
 
+#[tauri::command]
+async fn open_path(app: AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    app.shell()
+        .open(path, None)
+        .map_err(|e| format!("open failed: {e}"))
+}
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    if let Some(w) = app.get_webview_window("compact") {
+        let _ = w.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn show_compact_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+    if let Some(w) = app.get_webview_window("compact") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    // First time: create the compact window.
+    WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
+        .title("Picvert")
+        .inner_size(96.0, 96.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ----------------------------------------------------------------- entry point
+
+fn build_tray(app: &AppHandle) -> Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "Show Picvert", true, None::<&str>)?;
+    let compact_item = MenuItem::with_id(app, "compact", "Compact Mode", true, None::<&str>)?;
+    let about_item = MenuItem::with_id(app, "about", "About Picvert", true, None::<&str>)?;
+    let updates_item =
+        MenuItem::with_id(app, "check_updates", "Check for Updates…", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_item = PredefinedMenuItem::quit(app, Some("Quit"))?;
+
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show_item,
+            &compact_item,
+            &separator,
+            &about_item,
+            &updates_item,
+            &separator,
+            &quit_item,
+        ],
+    )?;
+
+    TrayIconBuilder::with_id("main")
+        .icon(app.default_window_icon().cloned().unwrap())
+        .icon_as_template(true) // macOS: render as a template (auto light/dark)
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                let _ = show_main_window(app.clone());
+            }
+            "compact" => {
+                let _ = show_compact_window(app.clone());
+            }
+            "about" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.eval("window.dispatchEvent(new Event('picvert:show-about'))");
+                    let _ = w.set_focus();
+                }
+            }
+            "check_updates" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.eval("window.dispatchEvent(new Event('picvert:check-updates'))");
+                    let _ = w.set_focus();
+                }
+            }
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // macOSPrivateApi is enabled via tauri.conf.json + Cargo feature
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -262,12 +365,18 @@ pub fn run() {
             engine_list_formats,
             convert_one,
             pick_output_folder,
+            show_main_window,
+            show_compact_window,
+            open_path,
         ])
         .setup(|app| {
-            // Pre-spawn the sidecar so the ~6 s PyInstaller cold start runs
-            // in parallel with the window and JS bootstrapping. By the time
-            // the frontend's first invoke arrives, the engine is usually
-            // already up.
+            // Tray icon — always present, even when no windows are open.
+            if let Err(e) = build_tray(app.handle()) {
+                eprintln!("failed to build tray icon: {e:#}");
+            }
+
+            // Pre-spawn the sidecar so the ~200 ms onedir cold start happens
+            // in parallel with the window and JS bootstrapping.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = run_engine(&app_handle, json!({"action": "ping"})).await {
