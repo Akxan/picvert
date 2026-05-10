@@ -310,10 +310,34 @@ async function refreshWeather() {
   }
 }
 
+// Pause both timers while the window is hidden — saves CPU + a network
+// request every 15 min the user can't see anyway. document.visibilityState
+// flips reliably on window hide/show in Tauri's WebKit/WebView2.
+
+let clockTimer = null;
+let weatherTimer = null;
+
+function startTimers() {
+  if (clockTimer == null) clockTimer = setInterval(updateClock, 30_000);
+  if (weatherTimer == null) weatherTimer = setInterval(refreshWeather, 15 * 60 * 1000);
+}
+function stopTimers() {
+  if (clockTimer != null) { clearInterval(clockTimer); clockTimer = null; }
+  if (weatherTimer != null) { clearInterval(weatherTimer); weatherTimer = null; }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    updateClock();        // immediate refresh
+    startTimers();
+  } else {
+    stopTimers();
+  }
+});
+
 updateClock();
 refreshWeather();
-setInterval(updateClock, 30_000);
-setInterval(refreshWeather, 15 * 60 * 1000);
+startTimers();
 
 // ─────────────────────────── drag / click ─────────────────────────────────
 

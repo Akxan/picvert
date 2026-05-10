@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; connect-src 'self' ipc: http://ipc.localhost https://ipwho.is https://ipapi.co https://api.open-meteo.com https://geocoding-api.open-meteo.com",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; connect-src 'self' ipc: http://ipc.localhost https://ipwho.is https://ipapi.co https://api.open-meteo.com",
       "assetProtocol": {
         "enable": true,
         "scope": [

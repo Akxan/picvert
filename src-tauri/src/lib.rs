@@ -63,8 +63,10 @@ impl From<anyhow::Error> for EngineErr {
 // ---------------------------------------------------------------- engine state
 
 /// One persistent sidecar process and the plumbing to talk to it.
+/// `child` is wrapped in Option so engine_cancel can `take()` it and call
+/// the consuming `CommandChild::kill()`.
 struct Engine {
-    child: Mutex<CommandChild>,
+    child: Mutex<Option<CommandChild>>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
     next_id: AtomicU64,
 }
@@ -105,9 +107,11 @@ impl EngineHandle {
             Arc::new(Mutex::new(HashMap::new()));
 
         // Pump: read each stdout line, look up the matching pending oneshot
-        // by id, and deliver. tauri-plugin-shell delivers stdout as
-        // CommandEvent::Stdout per line.
+        // by id, and deliver. On engine death we also drain pending (sending
+        // an error to each waiter) AND null out EngineHandle.inner so the
+        // next request will re-spawn instead of writing to a dead pipe.
         let pump_pending = pending.clone();
+        let pump_app = app.clone();
         tauri::async_runtime::spawn(async move {
             while let Some(event) = rx.recv().await {
                 match event {
@@ -146,6 +150,20 @@ impl EngineHandle {
                             "engine terminated (code={:?}, signal={:?})",
                             payload.code, payload.signal
                         );
+                        // Wake every pending caller with an error so the
+                        // UI doesn't hang forever waiting for a reply.
+                        let mut pend = pump_pending.lock().unwrap();
+                        for (id, tx) in pend.drain() {
+                            let _ = tx.send(serde_json::json!({
+                                "id": id, "ok": false,
+                                "error": { "kind": "engine_died",
+                                           "message": "engine process terminated" }
+                            }));
+                        }
+                        // Drop the dead Arc<Engine> so next get_or_spawn
+                        // creates a fresh subprocess.
+                        let state: State<EngineHandle> = pump_app.state();
+                        *state.inner.lock().unwrap() = None;
                         break;
                     }
                     _ => {}
@@ -154,7 +172,7 @@ impl EngineHandle {
         });
 
         let engine = Arc::new(Engine {
-            child: Mutex::new(child),
+            child: Mutex::new(Some(child)),
             pending,
             next_id: AtomicU64::new(1),
         });
@@ -178,7 +196,11 @@ async fn run_engine(app: &AppHandle, mut request: Value) -> Result<Value, Engine
     let payload = serde_json::to_string(&request)
         .map_err(|e| anyhow!("serialize request: {e}"))?;
     {
-        let mut child = engine.child.lock().unwrap();
+        let mut guard = engine.child.lock().unwrap();
+        let child = guard.as_mut().ok_or_else(|| {
+            engine.pending.lock().unwrap().remove(&id);
+            anyhow!("engine not running (was killed)")
+        })?;
         child
             .write(format!("{payload}\n").as_bytes())
             .map_err(|e| {
@@ -252,6 +274,23 @@ async fn pick_output_folder(app: AppHandle) -> Option<String> {
     rx.recv().ok().flatten().map(|p| p.to_string())
 }
 
+/// Open a multi-select file picker. Returns absolute paths the renderer
+/// can hand straight back to convert_one. Used instead of HTML `<input
+/// type="file">` because that doesn't expose absolute paths in Tauri's
+/// WebKit/WebView2.
+#[tauri::command]
+async fn pick_input_files(app: AppHandle) -> Vec<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog().file().pick_files(move |paths| {
+        let _ = tx.send(paths);
+    });
+    rx.recv()
+        .ok()
+        .flatten()
+        .map(|paths| paths.into_iter().map(|p| p.to_string()).collect())
+        .unwrap_or_default()
+}
+
 #[derive(Serialize)]
 struct UpdateCheckResult {
     available: bool,
@@ -296,6 +335,23 @@ fn hide_main_show_compact(app: AppHandle) -> Result<(), String> {
     show_compact_window(app)
 }
 
+/// Hard-cancel any in-flight conversion by killing the sidecar subprocess.
+/// The pump's `Terminated` handler will drain pending oneshots (so the
+/// awaiting JS call returns an `engine_died` error) and clear
+/// EngineHandle.inner. The next request automatically respawns — onedir
+/// cold start is ~0.17 s.
+#[tauri::command]
+fn engine_cancel(app: AppHandle) -> Result<(), String> {
+    let handle: State<EngineHandle> = app.state();
+    let maybe_engine = handle.inner.lock().unwrap().clone();
+    if let Some(engine) = maybe_engine {
+        if let Some(child) = engine.child.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+    }
+    Ok(())
+}
+
 /// Send a system notification (macOS Notification Center / Windows Action Center).
 #[tauri::command]
 async fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
@@ -307,18 +363,39 @@ async fn notify(app: AppHandle, title: String, body: String) -> Result<(), Strin
         .map_err(|e| format!("notify: {e}"))
 }
 
-/// HTTP GET that returns the response body as text. Used by the compact
-/// weather widget for ipwho.is + Open-Meteo. Going through Rust avoids any
-/// WKWebView CSP / CORS quirks and also gives us a 6-second timeout.
+/// Hosts the renderer is allowed to fetch via http_get_text. Without
+/// this, a JS injection or future bug could turn the command into a
+/// generic SSRF tunnel (AWS IMDS, internal admin panels, file:// etc.)
+/// since the request goes through Rust's reqwest, NOT the webview's
+/// CSP-enforced fetch.
+const HTTP_GET_HOST_ALLOWLIST: &[&str] = &[
+    "ipwho.is",
+    "ipapi.co",
+    "api.open-meteo.com",
+];
+
+/// HTTPS-only GET that returns the response body as text. Used by the
+/// compact weather widget for IP geolocation + Open-Meteo. The host MUST
+/// be in HTTP_GET_HOST_ALLOWLIST or the call is refused.
 #[tauri::command]
 async fn http_get_text(url: String) -> Result<String, String> {
+    // Parse + enforce scheme + host allowlist BEFORE any network access.
+    let parsed = url::Url::parse(&url).map_err(|e| format!("bad url: {e}"))?;
+    if parsed.scheme() != "https" {
+        return Err("refused: only https:// allowed".into());
+    }
+    let host = parsed.host_str().ok_or("refused: missing host")?;
+    if !HTTP_GET_HOST_ALLOWLIST.contains(&host) {
+        return Err(format!("refused: host {host} not in allowlist"));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(6))
         .user_agent("Picvert/1.1 (https://github.com/Akxan/picvert)")
         .build()
         .map_err(|e| format!("client build: {e}"))?;
     let r = client
-        .get(&url)
+        .get(parsed)
         .send()
         .await
         .map_err(|e| format!("request: {e}"))?;
@@ -561,6 +638,7 @@ pub fn run() {
             engine_list_formats,
             convert_one,
             pick_output_folder,
+            pick_input_files,
             show_main_window,
             show_compact_window,
             open_path,
@@ -569,6 +647,7 @@ pub fn run() {
             http_get_text,
             notify,
             hide_main_show_compact,
+            engine_cancel,
         ])
         // The main window's close button is intercepted in JS now (so the
         // exit animation can play). We still prevent the default OS-level

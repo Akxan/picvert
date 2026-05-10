@@ -21,16 +21,6 @@
           "args": true
         }
       ]
-    },
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "engine",
-          "cmd": "$RESOURCE/engine/picvert-engine",
-          "args": true
-        }
-      ]
     }
   ]
 }

@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["sync"] }
 # Used by the http_get_text command — bypasses WKWebView CSP/CORS for the
 # weather widget so it works on every user's network.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2"
 
 [profile.release]
 panic = "abort"

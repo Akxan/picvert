@@ -21,7 +21,6 @@ const appWindow = currentWebviewWindow();
 // ─── DOM refs ─────────────────────────────────────────────────────────────
 
 const dropzone = $("dropzone");
-const fileInput = $("file-input");
 const formatSelect = $("format-select");
 const convertBtn = $("convert-btn");
 const cancelBtn = $("cancel-btn");
@@ -205,11 +204,20 @@ async function init() {
 
 // ─── file pickers / drop ──────────────────────────────────────────────────
 
-fileInput.addEventListener("change", () => {
-  addFiles([...fileInput.files].map((f) => ({ path: f.path || f.name, name: f.name })));
-});
+// Native file picker — returns absolute paths the engine can read.
+// HTML <input type="file"> would only give us filenames in WebKit/WebView2.
+async function openNativeFilePicker() {
+  try {
+    const paths = await invoke("pick_input_files");
+    if (Array.isArray(paths) && paths.length) {
+      addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
+    }
+  } catch (err) {
+    console.error("pick_input_files failed", err);
+  }
+}
 
-dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("click", openNativeFilePicker);
 dropzone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropzone.classList.add("dragover");
@@ -271,7 +279,12 @@ openOutputBtn.addEventListener("click", async () => {
 // ─── conversion loop ──────────────────────────────────────────────────────
 
 convertBtn.addEventListener("click", () => startConversion());
-cancelBtn.addEventListener("click", () => { cancelRequested = true; });
+cancelBtn.addEventListener("click", () => {
+  cancelRequested = true;
+  // Kill the engine subprocess so an in-flight (e.g. multi-page PDF) call
+  // doesn't run to completion. The Rust side will respawn on next use.
+  invoke("engine_cancel").catch(() => {});
+});
 
 async function startConversion() {
   if (busy) return;
@@ -475,7 +488,6 @@ window.addEventListener("picvert:check-updates", () => {
   openAbout();
   checkForUpdates();
 });
-window.addEventListener("picvert:show-help", openHelp);
 
 // Close button (red traffic light) — Rust prevents the OS-level close and
 // emits this event so we can play a leave animation before collapsing
@@ -498,7 +510,7 @@ document.addEventListener("keydown", (e) => {
   // ⌘O — open file picker
   if (e.key.toLowerCase() === "o") {
     e.preventDefault();
-    if (!busy) fileInput.click();
+    if (!busy) openNativeFilePicker();
   }
   // ⌘Enter — start conversion
   else if (e.key === "Enter") {
