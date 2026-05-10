@@ -10,6 +10,7 @@
     "core:window:allow-hide",
     "dialog:default",
     "updater:default",
+    "notification:default",
     "shell:default",
     {
       "identifier": "shell:allow-spawn",

@@ -1,23 +1,8 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Picvert capsule — refined liquid glass.
-   Window is 112×112, transparent, no native shadow. The disc lives in
-   the centre with 8px breathing room for the soft CSS shadow.
-   Layered structure of the capsule:
-     #capsule (the disc + base gradient + outer shadow)
-       .halo   — outer chromatic glow ring (lifts on hover)
-       .glass  — top-left specular highlight (the "wet" reflection)
-       svg     — the icon itself
-       .glint  — slow diagonal sweep, "sun on glass"
-       .ripple — click feedback
+   Picvert capsule v3 — premium glass weather widget.
+   Window 280×140, transparent. The card sits centred with margin so
+   the soft drop-shadow has room to fade to zero.
    ───────────────────────────────────────────────────────────────────────── */
-
-:root {
-  --c-blue: #6b91a8;
-  --c-violet: #8d83a8;
-  --c-rose: #c4a6a0;
-  --c-gold: #c9a87c;
-  --c-shadow: rgba(54, 78, 99, 0.4);
-}
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -28,196 +13,208 @@ html, body {
   overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
-               sans-serif;
+  font-family:
+    "Cormorant Garamond", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Songti SC", serif;
+  color: #fefaf0;
 }
 
-/* ─────────────────────────────── disc ─────────────────────────────── */
-
+/* The capsule "card". Horizontal layout: time | divider | weather. */
 #capsule {
   position: absolute;
-  top: 32px;
-  left: 32px;
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  display: flex;
+  top: 22px;
+  left: 22px;
+  width: 236px;
+  height: 96px;
+  border-radius: 22px;
+  display: grid;
+  grid-template-columns: auto 1px 1fr;
   align-items: center;
-  justify-content: center;
+  gap: 14px;
   cursor: grab;
   overflow: hidden;
-  isolation: isolate;            /* contain blend modes / mix ops */
+  isolation: isolate;
+  padding: 0 18px;
 
-  /* Layered base: a deep gradient + a top-light radial = liquid feel. */
+  /* Aged-leather / mahogany glass — warm browns matching the main window. */
   background:
-    radial-gradient(120% 110% at 30% 20%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 45%),
-    radial-gradient(120% 100% at 70% 100%, rgba(196,166,160,0.55) 0%, rgba(196,166,160,0) 60%),
-    linear-gradient(155deg, #7a9cad 0%, #8a82a4 55%, #9f8a99 100%);
+    radial-gradient(120% 120% at 25% -10%, rgba(255,236,200,0.2) 0%, rgba(255,236,200,0) 55%),
+    linear-gradient(135deg, #2a1d10 0%, #3a2a1c 50%, #4a3622 100%);
 
-  /* Hairline glass border + top inset highlight. */
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(201, 160, 100, 0.28);
+  /* Shadow reach (offset 4 + blur 14 = 18) stays inside the 22 px window
+     margin so the rectangular window never clips it into a square halo. */
   box-shadow:
-    0 14px 28px var(--c-shadow),
-    0 4px 10px rgba(54, 78, 99, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -8px 18px rgba(0, 0, 0, 0.06);
+    0 4px 14px rgba(40, 25, 12, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 220, 170, 0.18),
+    inset 0 -10px 22px rgba(0, 0, 0, 0.22);
 
-  color: rgba(255, 255, 255, 0.95);
   transition:
     transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1.05),
     box-shadow 320ms ease,
-    background 360ms ease,
-    border-color 320ms ease;
-  animation: breathe 5.2s ease-in-out infinite;
+    border-color 240ms ease;
 }
 
-/* ─────────────────────────────── glass highlight (top-left) ─────────────────────────────── */
+/* ─── card glow underlay (visible on hover) ─── */
 
-.glass {
+/* Inner edge glow — sits INSIDE the capsule (no -inset) so the parent's
+   overflow:hidden clips any blur leak. Pure decoration on hover. */
+.card-glow {
   position: absolute;
-  top: 4px;
-  left: 8px;
-  width: 56%;
-  height: 40%;
-  border-radius: 50%;
-  background: radial-gradient(
-    closest-side,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.12) 60%,
-    transparent 100%
-  );
+  inset: 0;
+  border-radius: inherit;
   pointer-events: none;
-  filter: blur(0.5px);
-  transition: opacity 320ms ease, transform 320ms ease;
-}
-
-/* ─────────────────────────────── outer halo ring ─────────────────────────────── */
-
-.halo {
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  pointer-events: none;
-  background: conic-gradient(
-    from 200deg,
-    rgba(122, 156, 173, 0.55),
-    rgba(157, 149, 171, 0.55),
-    rgba(196, 166, 160, 0.55),
-    rgba(122, 156, 173, 0.55)
-  );
-  filter: blur(8px);
+  background: linear-gradient(135deg, rgba(201,160,100,0.55), rgba(201,90,60,0.4));
+  filter: blur(20px);
   opacity: 0;
-  transition: opacity 360ms ease, transform 360ms ease;
-  z-index: -1;
+  transition: opacity 360ms ease;
+  z-index: 0;
 }
 
-/* ─────────────────────────────── icon ─────────────────────────────── */
+/* ─── columns ─── */
 
-.capsule-icon {
-  width: 34px;
-  height: 34px;
-  pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
-  transition:
-    transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1.1),
-    opacity 240ms ease;
-  opacity: 0.96;
+.col-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
   z-index: 1;
+  min-width: 0;
+}
+.col-weather {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  z-index: 1;
+  min-width: 0;
+  text-align: right;
 }
 
-/* ─────────────────────────────── slow glint sweep ─────────────────────────────── */
-
-.glint {
-  position: absolute;
-  top: -100%;
-  left: -100%;
-  width: 220%;
-  height: 220%;
-  pointer-events: none;
-  background: linear-gradient(
-    115deg,
-    transparent 42%,
-    rgba(255, 255, 255, 0.32) 50%,
-    transparent 58%
-  );
-  transform: translate(-100%, -100%) rotate(0deg);
-  animation: glint 9s ease-in-out infinite;
-  animation-delay: 2s;
-  mix-blend-mode: screen;
+.divider {
+  width: 1px;
+  height: 64%;
+  background: linear-gradient(180deg, transparent, rgba(255,255,255,0.18), transparent);
 }
 
-@keyframes glint {
-  0%, 70% {
-    transform: translate(-60%, -60%);
-    opacity: 0;
-  }
-  78% { opacity: 1; }
-  90% {
-    transform: translate(60%, 60%);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(60%, 60%);
-    opacity: 0;
-  }
+/* ─── time block ─── */
+
+.time {
+  font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, #fffaf0 0%, #ffd9a3 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1;
+}
+.date {
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap;
+}
+.tz {
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tz .dst {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(245, 175, 90, 0.22);
+  color: #f5af5a;
+  font-size: 0.92em;
+  letter-spacing: 0.04em;
 }
 
-/* ─────────────────────────────── breathing ─────────────────────────────── */
+/* ─── weather block ─── */
 
-@keyframes breathe {
-  0%, 100% {
-    box-shadow:
-      0 14px 28px var(--c-shadow),
-      0 4px 10px rgba(54, 78, 99, 0.18),
-      inset 0 1px 0 rgba(255, 255, 255, 0.45),
-      inset 0 -8px 18px rgba(0, 0, 0, 0.06);
-  }
-  50% {
-    box-shadow:
-      0 18px 36px rgba(54, 78, 99, 0.55),
-      0 4px 10px rgba(54, 78, 99, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.55),
-      inset 0 -8px 18px rgba(0, 0, 0, 0.05);
-  }
+.weather-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.weather-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--w-color, #ffd97a);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1.1);
+}
+.weather-icon svg { width: 100%; height: 100%; }
+.temp {
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.city {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.country {
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* ─────────────────────────────── hover ─────────────────────────────── */
+/* ─── interactions ─── */
 
 #capsule:hover {
-  animation: none; /* don't fight the user */
-  transform: translateY(-1.5px) scale(1.05);
-  border-color: rgba(255, 255, 255, 0.4);
-  background:
-    radial-gradient(120% 110% at 30% 20%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 45%),
-    radial-gradient(120% 100% at 70% 100%, rgba(201,168,124,0.55) 0%, rgba(201,168,124,0) 60%),
-    linear-gradient(155deg, #82a3b3 0%, #968cae 55%, #b09299 100%);
+  transform: translateY(-2px) scale(1.015);
+  border-color: rgba(220, 180, 130, 0.45);
+  /* Hover shadow also fits inside the 22 px margin (reach 6+14 = 20). */
   box-shadow:
-    0 22px 40px rgba(54, 78, 99, 0.5),
-    0 6px 14px rgba(201, 168, 124, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -8px 18px rgba(0, 0, 0, 0.04);
+    0 6px 14px rgba(40, 25, 12, 0.5),
+    0 2px 6px rgba(201, 160, 100, 0.22),
+    inset 0 1px 0 rgba(255, 220, 170, 0.28),
+    inset 0 -10px 22px rgba(0, 0, 0, 0.18);
 }
-#capsule:hover .glass { opacity: 1.1; transform: translate(2px, 2px); }
-#capsule:hover .halo { opacity: 1; transform: scale(1.08); }
-#capsule:hover .capsule-icon {
-  transform: rotate(-4deg) scale(1.05);
-  opacity: 1;
-}
-
-/* ─────────────────────────────── active / mousedown ─────────────────────────────── */
+#capsule:hover .card-glow { opacity: 0.55; }
+#capsule:hover .weather-icon { transform: scale(1.1) rotate(-6deg); }
 
 #capsule:active {
   cursor: grabbing;
-  transform: scale(0.965);
+  transform: scale(0.985);
   transition: transform 110ms ease;
 }
 
 #capsule:focus-visible {
-  outline: 2px solid var(--c-gold);
+  outline: 2px solid #f5c97a;
   outline-offset: 4px;
 }
 
-/* ─────────────────────────────── click ripple ─────────────────────────────── */
+/* ─── click ripple ─── */
 
 .ripple {
   position: absolute;
@@ -226,42 +223,35 @@ html, body {
   width: 0;
   height: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0));
+  background: radial-gradient(circle, rgba(255,255,255,0.4), rgba(255,255,255,0));
   transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0;
   z-index: 2;
 }
 #capsule.is-clicked .ripple {
-  animation: capsule-ripple 540ms cubic-bezier(0.1, 0.6, 0.2, 1);
+  animation: ripple 540ms cubic-bezier(0.1, 0.6, 0.2, 1);
 }
-@keyframes capsule-ripple {
-  0%   { width: 0;    height: 0;    opacity: 0.7; }
-  100% { width: 220%; height: 220%; opacity: 0;   }
+@keyframes ripple {
+  0%   { width: 0;     height: 0;     opacity: 0.6; }
+  100% { width: 380%;  height: 380%;  opacity: 0;   }
 }
 
-/* ─────────────────────────────── drag-over: gold "ready to receive" ─────────────────────────────── */
+/* ─── drag-over feedback ─── */
 
 body.dragover #capsule {
-  background:
-    radial-gradient(120% 110% at 30% 20%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 45%),
-    radial-gradient(120% 100% at 70% 100%, rgba(201,168,124,0.7) 0%, rgba(201,168,124,0) 60%),
-    linear-gradient(155deg, #c9a87c 0%, #c4a6a0 60%, #b08e8a 100%);
-  transform: scale(1.12);
-  border-color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(245, 175, 90, 0.7);
   box-shadow:
-    0 24px 44px rgba(201, 168, 124, 0.55),
-    0 6px 14px rgba(184, 138, 100, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
-}
-body.dragover #capsule .capsule-icon {
-  transform: scale(1.18);
+    0 6px 16px rgba(245, 175, 90, 0.5),
+    0 2px 6px rgba(245, 175, 90, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: scale(1.03);
 }
 
-/* ─────────────────────────────── reduced-motion ─────────────────────────────── */
+/* ─── reduce motion ─── */
 
 @media (prefers-reduced-motion: reduce) {
-  #capsule, .capsule-icon, .glass, .halo, .glint, .ripple {
+  #capsule, .card-glow, .weather-icon, .ripple {
     animation: none !important;
     transition: none !important;
   }

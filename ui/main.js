@@ -1,51 +1,30 @@
 // Picvert v2 frontend — vanilla JS shell, no bundler.
-//
-// Talks to Tauri's Rust core via window.__TAURI__.core.invoke() (made
-// available by withGlobalTauri: true). All conversion work goes through
-// the picvert-engine sidecar over JSON-RPC, dispatched by Rust.
+// Talks to Tauri's Rust core via window.__TAURI__.core.invoke().
 
 import { SUPPORTED_LANGS, getLang, setLang, onLangChange, t, translations } from "./i18n.js";
-
-// ─── early sanity check ──────────────────────────────────────────────────
+import { $, errMessage, currentWebviewWindow, suppressContextMenu } from "./utils.js";
 
 if (!window.__TAURI__) {
   document.addEventListener("DOMContentLoaded", () => {
     document.body.innerHTML =
       '<div style="padding:2rem;font-family:system-ui;color:#b56b6b">' +
       "<h2>Picvert init failed</h2>" +
-      "<p><code>window.__TAURI__</code> is not injected. Open Tauri shell, not the raw HTML.</p>" +
+      "<p><code>window.__TAURI__</code> is not injected.</p>" +
       "</div>";
   });
   throw new Error("__TAURI__ not injected");
 }
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
-
-/** Resolve the current webview window across the names Tauri 2 might expose. */
-function resolveAppWindow() {
-  const ns = window.__TAURI__;
-  const candidates = [
-    ns.webviewWindow?.getCurrentWebviewWindow,
-    ns.webviewWindow?.getCurrent,
-    ns.window?.getCurrentWindow,
-    ns.window?.getCurrent,
-  ];
-  for (const fn of candidates) {
-    if (typeof fn === "function") {
-      try { return fn(); } catch {}
-    }
-  }
-  return null;
-}
-const appWindow = resolveAppWindow();
+const appWindow = currentWebviewWindow();
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────
 
-const $ = (id) => document.getElementById(id);
 const dropzone = $("dropzone");
 const fileInput = $("file-input");
 const formatSelect = $("format-select");
 const convertBtn = $("convert-btn");
+const cancelBtn = $("cancel-btn");
 const clearBtn = $("clear-btn");
 const fileListEl = $("file-list");
 const listCountEl = $("list-count");
@@ -67,6 +46,7 @@ const updateStatusEl = $("update-status");
 const helpDialog = $("help-dialog");
 const helpInputsEl = $("help-inputs");
 const helpOutputsEl = $("help-outputs");
+const toastStack = $("toast-stack");
 
 // ─── state ────────────────────────────────────────────────────────────────
 
@@ -76,25 +56,36 @@ const IMAGE_EXT = /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic)$/i
 let files = [];
 let outputFolder = null;
 let busy = false;
-
-// engineState is a tagged union so applyTranslations() can reproduce the
-// localised footer text after a language change.
-let engineState = { kind: "loading" };
-
+let cancelRequested = false;
+let engineState = { kind: "loading" }; // tagged union
 let supportedFormats = { input_extensions: [], output_formats: [] };
 
-// ─── small helpers ────────────────────────────────────────────────────────
-
-const errMessage = (err) =>
-  err && typeof err === "object" ? (err.message || err.kind || JSON.stringify(err)) : String(err);
+// ─── helpers ──────────────────────────────────────────────────────────────
 
 const fileBadge = (name) => {
   const ext = name.split(".").pop().toLowerCase();
   return { pdf: "PDF", docx: "DOC", xlsx: "XLS", csv: "CSV", svg: "SVG" }[ext] || ext.toUpperCase();
 };
 
-function langName(lang) {
-  return { en: "english", es: "spanish", ru: "russian", zh: "chinese" }[lang] || "english";
+const langName = (lang) =>
+  ({ en: "english", es: "spanish", ru: "russian", zh: "chinese" })[lang] || "english";
+
+// ─── toast ────────────────────────────────────────────────────────────────
+
+/** Show a transient notification in the bottom-right. Auto-dismisses after
+ *  `ms` (default 2.4 s) or earlier on click. */
+function toast(text, kind = "info", ms = 2400) {
+  const el = document.createElement("div");
+  el.className = `toast toast-${kind}`;
+  el.textContent = text;
+  toastStack.appendChild(el);
+  const dismiss = () => {
+    if (!el.isConnected) return;
+    el.classList.add("toast-out");
+    setTimeout(() => el.remove(), 200);
+  };
+  el.addEventListener("click", dismiss);
+  setTimeout(dismiss, ms);
 }
 
 // ─── engine status footer ─────────────────────────────────────────────────
@@ -148,7 +139,6 @@ function applyTranslations() {
   }
   renderEngineStatus();
   render();
-  // Push label updates to the tray menu.
   invoke("set_tray_labels", {
     labels: {
       show: t("tray_show"),
@@ -195,6 +185,7 @@ async function init() {
   } catch (err) {
     engineState = { kind: "error", err: errMessage(err) };
     renderEngineStatus();
+    toast(t("engine_error", { err: errMessage(err) }), "error", 6000);
   }
 
   try {
@@ -215,8 +206,7 @@ async function init() {
 // ─── file pickers / drop ──────────────────────────────────────────────────
 
 fileInput.addEventListener("change", () => {
-  const items = [...fileInput.files].map((f) => ({ path: f.path || f.name, name: f.name }));
-  addFiles(items);
+  addFiles([...fileInput.files].map((f) => ({ path: f.path || f.name, name: f.name })));
 });
 
 dropzone.addEventListener("click", () => fileInput.click());
@@ -249,7 +239,12 @@ function addFiles(items) {
     files.push({ ...it, statusKey: "queued" });
     added++;
   }
-  if (added > 0) render();
+  if (added > 0) {
+    render();
+    toast(t("msg_added_n", { n: added }), "success");
+  } else if (items.length > 0) {
+    toast(t("msg_no_new"), "info", 1600);
+  }
 }
 
 const removeFile = (idx) => {
@@ -261,20 +256,27 @@ const removeFile = (idx) => {
 
 changeOutputBtn.addEventListener("click", async () => {
   const folder = await invoke("pick_output_folder");
-  if (folder) setOutputFolder(folder);
+  if (folder) {
+    setOutputFolder(folder);
+    toast(folder, "success", 1600);
+  }
 });
 
 openOutputBtn.addEventListener("click", async () => {
   if (!outputFolder) return;
   try { await invoke("open_path", { path: outputFolder }); }
-  catch (err) { console.error("open_path failed", err); }
+  catch (err) { toast(errMessage(err), "error"); }
 });
 
 // ─── conversion loop ──────────────────────────────────────────────────────
 
-convertBtn.addEventListener("click", async () => {
+convertBtn.addEventListener("click", () => startConversion());
+cancelBtn.addEventListener("click", () => { cancelRequested = true; });
+
+async function startConversion() {
+  if (busy) return;
   if (files.length === 0) {
-    alert(t("msg_no_files"));
+    toast(t("msg_no_files"), "info");
     return;
   }
   if (!outputFolder) {
@@ -283,6 +285,7 @@ convertBtn.addEventListener("click", async () => {
     setOutputFolder(picked);
   }
 
+  cancelRequested = false;
   setUiBusy(true);
   progressEl.classList.remove("hidden");
   progressSummary.classList.add("hidden");
@@ -291,6 +294,10 @@ convertBtn.addEventListener("click", async () => {
   const fmt = formatSelect.value;
 
   for (const f of files) {
+    if (cancelRequested) {
+      f.statusKey = "queued";   // unmark anything left
+      continue;
+    }
     f.statusKey = "running";
     render();
     try {
@@ -314,9 +321,19 @@ convertBtn.addEventListener("click", async () => {
   progressSummary.textContent = t("summary_done", { ok, err });
   progressSummary.classList.remove("hidden");
   setUiBusy(false);
-});
+
+  // Toast + system notification when batch finishes naturally.
+  if (!cancelRequested && ok > 0) {
+    toast(t("summary_done", { ok, err }), err > 0 ? "error" : "success", 3500);
+    invoke("notify", {
+      title: t("title"),
+      body: t("msg_done_notify", { ok }),
+    }).catch(() => {}); // notify is optional — don't crash if it fails
+  }
+}
 
 clearBtn.addEventListener("click", () => {
+  if (busy) return;
   files = [];
   progressEl.classList.add("hidden");
   render();
@@ -329,6 +346,8 @@ function setUiBusy(b) {
   formatSelect.disabled = b;
   langSelect.disabled = b;
   changeOutputBtn.disabled = b;
+  cancelBtn.classList.toggle("hidden", !b);
+  convertBtn.classList.toggle("hidden", b);
 }
 
 // ─── render file list ─────────────────────────────────────────────────────
@@ -458,7 +477,39 @@ window.addEventListener("picvert:check-updates", () => {
 });
 window.addEventListener("picvert:show-help", openHelp);
 
-// Suppress dev context menu in production.
-window.addEventListener("contextmenu", (e) => e.preventDefault());
+// ─── keyboard shortcuts ───────────────────────────────────────────────────
 
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+  // ⌘O — open file picker
+  if (e.key.toLowerCase() === "o") {
+    e.preventDefault();
+    if (!busy) fileInput.click();
+  }
+  // ⌘Enter — start conversion
+  else if (e.key === "Enter") {
+    e.preventDefault();
+    if (!busy) startConversion();
+  }
+  // ⌘L — clear queue
+  else if (e.key.toLowerCase() === "l") {
+    e.preventDefault();
+    if (!busy) clearBtn.click();
+  }
+  // ⌘. — cancel current batch
+  else if (e.key === "." && busy) {
+    e.preventDefault();
+    cancelRequested = true;
+  }
+});
+
+// Tooltips for shortcut discoverability.
+convertBtn.title = "⌘↵";
+clearBtn.title = "⌘L";
+cancelBtn.title = "⌘.";
+
+// ─── misc ─────────────────────────────────────────────────────────────────
+
+suppressContextMenu();
 init();

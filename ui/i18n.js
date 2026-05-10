@@ -60,6 +60,11 @@ export const translations = {
     help_close: "Got it",
     drop_hint_chips: "PNG · JPG · PDF · DOCX · XLSX · CSV · HEIC · SVG",
     list_title: "Files",
+    btn_cancel: "Cancel",
+    msg_cancelling: "Cancelling…",
+    msg_added_n: "Added {n} files",
+    msg_no_new: "No new files",
+    msg_done_notify: "Picvert: {ok} converted",
   },
   es: {
     title: "Picvert",
@@ -117,6 +122,11 @@ export const translations = {
     help_close: "Entendido",
     drop_hint_chips: "PNG · JPG · PDF · DOCX · XLSX · CSV · HEIC · SVG",
     list_title: "Archivos",
+    btn_cancel: "Cancelar",
+    msg_cancelling: "Cancelando…",
+    msg_added_n: "Añadidos {n} archivos",
+    msg_no_new: "Sin archivos nuevos",
+    msg_done_notify: "Picvert: {ok} convertidos",
   },
   ru: {
     title: "Picvert",
@@ -174,6 +184,11 @@ export const translations = {
     help_close: "Понятно",
     drop_hint_chips: "PNG · JPG · PDF · DOCX · XLSX · CSV · HEIC · SVG",
     list_title: "Файлы",
+    btn_cancel: "Отменить",
+    msg_cancelling: "Отмена…",
+    msg_added_n: "Добавлено {n} файлов",
+    msg_no_new: "Новых файлов нет",
+    msg_done_notify: "Picvert: {ok} конвертировано",
   },
   zh: {
     title: "Picvert",
@@ -231,6 +246,11 @@ export const translations = {
     help_close: "知道了",
     drop_hint_chips: "PNG · JPG · PDF · DOCX · XLSX · CSV · HEIC · SVG",
     list_title: "文件列表",
+    btn_cancel: "取消",
+    msg_cancelling: "正在取消…",
+    msg_added_n: "已添加 {n} 个文件",
+    msg_no_new: "没有新文件",
+    msg_done_notify: "Picvert：成功转换 {ok} 个",
   },
 };
 
@@ -256,6 +276,11 @@ export function setLang(lang) {
   current = lang;
   localStorage.setItem(LS_KEY, lang);
   subscribers.forEach((fn) => fn(current));
+  // Broadcast so the compact-mode capsule (separate window) can update too.
+  try {
+    const eventNs = window.__TAURI__?.event;
+    if (eventNs?.emit) eventNs.emit("picvert:lang-changed", lang);
+  } catch {}
 }
 
 export function onLangChange(fn) {

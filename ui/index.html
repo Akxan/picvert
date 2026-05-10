@@ -76,6 +76,9 @@
         <button id="convert-btn" class="btn-primary" data-i18n="btn_convert">
           Start Conversion
         </button>
+        <button id="cancel-btn" class="btn-ghost hidden" data-i18n="btn_cancel">
+          Cancel
+        </button>
         <button id="clear-btn" class="btn-ghost" data-i18n="btn_clear">Clear</button>
       </section>
 
@@ -155,6 +158,9 @@
         <button id="help-close-btn" class="btn-primary" data-i18n="help_close">Got it</button>
       </div>
     </dialog>
+
+    <!-- Toast container — populated by main.js -->
+    <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
     <script type="module" src="main.js"></script>
   </body>

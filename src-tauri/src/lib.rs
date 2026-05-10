@@ -23,6 +23,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
 
 const SIDECAR_BIN: &str = if cfg!(windows) {
@@ -284,6 +285,38 @@ fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<(), String> {
     build_tray_with_labels(&app, &labels).map_err(|e| format!("rebuild tray: {e:#}"))
 }
 
+/// Send a system notification (macOS Notification Center / Windows Action Center).
+#[tauri::command]
+async fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| format!("notify: {e}"))
+}
+
+/// HTTP GET that returns the response body as text. Used by the compact
+/// weather widget for ipwho.is + Open-Meteo. Going through Rust avoids any
+/// WKWebView CSP / CORS quirks and also gives us a 6-second timeout.
+#[tauri::command]
+async fn http_get_text(url: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .user_agent("Picvert/1.1 (https://github.com/Akxan/picvert)")
+        .build()
+        .map_err(|e| format!("client build: {e}"))?;
+    let r = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("request: {e}"))?;
+    if !r.status().is_success() {
+        return Err(format!("HTTP {}", r.status()));
+    }
+    r.text().await.map_err(|e| format!("body: {e}"))
+}
+
 /// Open a folder in the OS file manager.
 ///
 /// Hardened against the renderer being able to use this as a generic URL
@@ -336,12 +369,25 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         let _ = w.set_focus();
         return Ok(());
     }
-    // First time: create the compact window. shadow(false) is essential —
-    // macOS otherwise paints a native window-shadow halo around the
-    // transparent window which looks like a square frame in screenshots.
+    // First time: create the compact window.
+    //   - transparent(true): NSWindow becomes non-opaque + WKWebView gets
+    //     drawsBackground:NO. The HTML body sets `background: transparent`
+    //     so we end up with a click-through-to-desktop window painted only
+    //     where the capsule's pixels are.
+    //   - shadow(false): kills the macOS NSWindow halo (rectangular).
+    //   - 200×200: room for the CSS drop-shadow without rectangular clipping.
+    //
+    // DO NOT set background_color(...) here — on macOS that targets the
+    // NSWindow layer (per Tauri docs the webview-layer impl is a no-op),
+    // and an explicit Color even with alpha=0 marks the window as having
+    // a background, defeating transparent(true). Past iterations of this
+    // file added it "to be safe" and it caused a visible dark square halo.
+    // Capsule is now a horizontal weather widget (time + date + current
+    // weather + city). 280×140 gives ~30 px breathing room around the
+    // 220×84 card for the soft drop-shadow.
     let win = WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
         .title("Picvert")
-        .inner_size(144.0, 144.0)
+        .inner_size(280.0, 140.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -351,11 +397,11 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         .visible(true)
         .build()
         .map_err(|e| e.to_string())?;
-    // Park it near the top-right of the active monitor so users can find it.
+    // Park near the top-right of the active monitor.
     if let Ok(Some(monitor)) = win.current_monitor() {
         let size = monitor.size();
         let pos = monitor.position();
-        let x = pos.x + size.width as i32 - 120; // 96 + 24 gutter
+        let x = pos.x + size.width as i32 - 320; // 280 + 40 gutter
         let y = pos.y + 60;
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
     }
@@ -421,8 +467,18 @@ fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
         return Ok(());
     }
 
+    // Load our custom monochrome tray icon (black-on-transparent template).
+    // Falls back to the app's default colourful icon if the file isn't there.
+    let tray_icon_image = app
+        .path()
+        .resolve("icons/tray.png", tauri::path::BaseDirectory::Resource)
+        .ok()
+        .and_then(|p| std::fs::read(&p).ok())
+        .and_then(|bytes| tauri::image::Image::from_bytes(&bytes).ok())
+        .unwrap_or_else(|| app.default_window_icon().cloned().unwrap());
+
     let mut builder = TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().cloned().unwrap())
+        .icon(tray_icon_image)
         .icon_as_template(true) // macOS: render as a template (auto light/dark)
         .menu(&menu);
     // macOS users expect left-click to open the menu (no primary action set);
@@ -470,6 +526,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(EngineHandle::default())
         .invoke_handler(tauri::generate_handler![
             engine_ping,
@@ -481,6 +538,8 @@ pub fn run() {
             open_path,
             check_for_updates,
             set_tray_labels,
+            http_get_text,
+            notify,
         ])
         .on_window_event(|window, event| {
             // Closing the main window collapses the app into the floating

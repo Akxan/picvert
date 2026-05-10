@@ -11,35 +11,30 @@
       id="capsule"
       role="button"
       tabindex="0"
+      aria-label="Click to expand Picvert"
       title="Drag to move · Click to expand"
-      aria-label="Expand Picvert"
     >
-      <span class="halo" aria-hidden="true"></span>
-      <span class="glass" aria-hidden="true"></span>
-      <svg
-        class="capsule-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.55"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <!-- Two layered frames: source (outline) and target (subtly filled). -->
-        <rect x="3.2" y="3.2" width="11.6" height="11.6" rx="2.6"></rect>
-        <rect
-          x="9.2"
-          y="9.2"
-          width="11.6"
-          height="11.6"
-          rx="2.6"
-          fill="currentColor"
-          fill-opacity="0.22"
-          stroke="currentColor"
-        ></rect>
-      </svg>
-      <span class="glint" aria-hidden="true"></span>
+      <span class="card-glow" aria-hidden="true"></span>
+
+      <!-- Left column: time + date + timezone -->
+      <div class="col-time">
+        <div id="time" class="time" aria-live="polite">--:--</div>
+        <div id="date" class="date">—</div>
+        <div id="tz" class="tz">—</div>
+      </div>
+
+      <div class="divider" aria-hidden="true"></div>
+
+      <!-- Right column: weather + city + country -->
+      <div class="col-weather">
+        <div class="weather-row">
+          <span id="weather-icon" class="weather-icon" aria-hidden="true"></span>
+          <span id="temp" class="temp">—</span>
+        </div>
+        <div id="city" class="city">—</div>
+        <div id="country" class="country">—</div>
+      </div>
+
       <span class="ripple" aria-hidden="true"></span>
     </div>
     <script type="module" src="compact.js"></script>
