@@ -28,7 +28,9 @@ def convert_file(file_path: Path, output_folder: Path, selected_format: str) -> 
 
     Returns the number of files actually written (PDFs may produce many).
     """
-    output_format, ext_out = FORMAT_MAPPING.get(selected_format, ("JPEG", ".jpg"))
+    if selected_format not in FORMAT_MAPPING:
+        raise UnsupportedConversion(f"Unknown output format: {selected_format!r}")
+    output_format, ext_out = FORMAT_MAPPING[selected_format]
     ext_in = file_path.suffix.lower()
     output_folder.mkdir(parents=True, exist_ok=True)
 

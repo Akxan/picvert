@@ -1,4 +1,9 @@
-"""Tkinter GUI: drag-and-drop, preview, batch conversion."""
+"""Tkinter GUI: drag-and-drop, preview, batch conversion.
+
+Note: do NOT import this module from tests or headless contexts — it pulls in
+tkinter and tkinterdnd2 at import time. The conversion engine in
+`picvert.converters` is the testable boundary.
+"""
 from __future__ import annotations
 
 import logging
@@ -13,7 +18,6 @@ from PIL import Image, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from . import config as cfg
-from . import i18n
 from .constants import APP_VERSION, OUTPUT_FORMAT_LIST, SUPPORTED_EXTS
 from .converters import UnsupportedConversion, convert_file
 from .i18n import _, set_language, translations
@@ -240,15 +244,25 @@ class ImageConverterApp:
         messagebox.showinfo(_("btn_clear_all"), _("msg_file_added_success", n=0))
 
     # ------------------------------------------------------- file selection
+    def _add_files(self, paths: list[Path]) -> int:
+        """Append `paths` to self.files, deduping against what's already there. Returns # added."""
+        seen = set(self.files)
+        new = [p for p in paths if p not in seen]
+        self.files.extend(new)
+        return len(new)
+
     def drop(self, event) -> None:
         dropped = self.master.tk.splitlist(event.data)
-        valid = [Path(f) for f in dropped if Path(f).is_file() and Path(f).suffix.lower() in SUPPORTED_EXTS]
-        if valid:
-            self.files.extend(valid)
-            messagebox.showinfo(_("btn_select_files"), _("msg_file_added_success", n=len(valid)))
-            self.update_preview()
-        else:
+        valid = [
+            p for p in (Path(f) for f in dropped)
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS
+        ]
+        if not valid:
             messagebox.showwarning(_("btn_select_files"), _("msg_invalid_file"))
+            return
+        added = self._add_files(valid)
+        messagebox.showinfo(_("btn_select_files"), _("msg_file_added_success", n=added))
+        self.update_preview()
 
     def select_files(self) -> None:
         file_types = [
@@ -263,8 +277,8 @@ class ImageConverterApp:
         ]
         selected = filedialog.askopenfilenames(title=_("btn_select_files"), filetypes=file_types)
         if selected:
-            self.files.extend(Path(f) for f in selected)
-            messagebox.showinfo(_("btn_select_files"), _("msg_select_files", n=len(selected)))
+            added = self._add_files([Path(f) for f in selected])
+            messagebox.showinfo(_("btn_select_files"), _("msg_file_added_success", n=added))
             self.update_preview()
 
     def select_output_folder(self) -> None:
@@ -318,10 +332,5 @@ class ImageConverterApp:
 def run_app() -> None:
     """Build the Tk root and start the mainloop."""
     root = TkinterDnD.Tk()
-    try:
-        ico = ImageTk.PhotoImage(file="2.ico")
-        root.iconphoto(True, ico)
-    except Exception as exc:
-        logger.debug("Window icon not set: %s", exc)
     ImageConverterApp(root)
     root.mainloop()

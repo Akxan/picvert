@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-LOG_FILE = Path("app.log")
+from .paths import log_path
 
 
 def configure_logging(level: int = logging.INFO) -> logging.Logger:
@@ -13,7 +12,7 @@ def configure_logging(level: int = logging.INFO) -> logging.Logger:
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.FileHandler(log_path(), encoding="utf-8"),
         ],
     )
     return logging.getLogger("picvert")
