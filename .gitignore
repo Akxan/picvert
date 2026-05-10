@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Build / packaging
+build/
+dist/
+*.spec.bak
+
+# App runtime artifacts
+app.log
+config.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

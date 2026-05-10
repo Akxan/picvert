@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "converter-box"
+version = "1.1.0"
+description = "Batch image / PDF / document format converter with a Tkinter GUI"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Julio (Akxan)" }]
+license = { text = "MIT" }
+keywords = ["image", "converter", "pdf", "heic", "tkinter", "gui"]
+dependencies = [
+    "Pillow>=10.0",
+    "tkinterdnd2>=0.4.3",
+    "PyMuPDF>=1.24",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "pillow-heif>=0.18",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pyinstaller>=6.6"]
+
+[project.scripts]
+converter-box = "converter_box.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["converter_box*"]
