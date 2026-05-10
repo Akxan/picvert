@@ -9,7 +9,7 @@ description = "Batch image / PDF / document format converter with a Tkinter GUI"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Julio (Akxan)" }]
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 keywords = ["image", "converter", "pdf", "heic", "tkinter", "gui"]
 dependencies = [
     "Pillow>=10.0",
