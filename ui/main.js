@@ -6,10 +6,24 @@
 //   - engine_list_formats()            -> { input_extensions, output_formats }
 //   - convert_one(input, outDir, fmt)  -> { written }
 //   - pick_output_folder()             -> string | null
+//
+// Requires `withGlobalTauri: true` in tauri.conf.json so the namespace is
+// injected for vanilla HTML/JS (i.e. no npm/bundler in the loop).
+
+if (!window.__TAURI__) {
+  document.addEventListener("DOMContentLoaded", () => {
+    document.body.innerHTML =
+      '<div style="padding:2rem;font-family:system-ui;color:#b00">' +
+      '<h2>Picvert init failed</h2>' +
+      '<p>window.__TAURI__ is not defined. The shell did not inject the API.</p>' +
+      '<p>This means <code>withGlobalTauri</code> is not enabled, or the page was opened outside Tauri.</p>' +
+      "</div>";
+  });
+  throw new Error("__TAURI__ not injected");
+}
 
 const { invoke } = window.__TAURI__.core;
-const { open } = window.__TAURI__.dialog;
-const { listen } = window.__TAURI__.event;
+const listen = window.__TAURI__.event ? window.__TAURI__.event.listen : null;
 
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("file-input");
@@ -68,13 +82,15 @@ dropzone.addEventListener("drop", (e) => {
 });
 
 // Tauri's native file-drop event gives us real OS paths.
-listen("tauri://drag-drop", (event) => {
-  const paths = event.payload?.paths || [];
-  for (const path of paths) {
-    addFile({ path, name: path.split(/[\\/]/).pop() });
-  }
-  render();
-});
+if (listen) {
+  listen("tauri://drag-drop", (event) => {
+    const paths = event.payload?.paths || [];
+    for (const path of paths) {
+      addFile({ path, name: path.split(/[\\/]/).pop() });
+    }
+    render();
+  });
+}
 
 function addFile(f) {
   if (files.some((existing) => existing.path === f.path)) return;

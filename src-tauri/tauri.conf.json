@@ -10,6 +10,7 @@
     "beforeBuildCommand": null
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Picvert",
