@@ -27,9 +27,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import APP_VERSION
-from .constants import OUTPUT_FORMAT_LIST, SUPPORTED_EXTS
-from .converters import UnsupportedConversion, convert_file
+from picvert import APP_VERSION
+from picvert.constants import OUTPUT_FORMAT_LIST, SUPPORTED_EXTS
+from picvert.converters import UnsupportedConversion, convert_file
 
 
 def _handle(req: dict[str, Any]) -> dict[str, Any]:
