@@ -29,29 +29,31 @@ def convert_pdf_file(
     written = 0
     matrix = fitz.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
 
-    for index, page in enumerate(doc):
-        try:
-            pix = page.get_pixmap(matrix=matrix)
-            img_bytes = pix.tobytes("png")
-            page_img = Image.open(io.BytesIO(img_bytes))
+    try:
+        for index, page in enumerate(doc):
+            try:
+                pix = page.get_pixmap(matrix=matrix)
+                img_bytes = pix.tobytes("png")
+                with Image.open(io.BytesIO(img_bytes)) as page_img:
+                    if output_format in {"JPEG", "JPEG2000"} and page_img.mode != "RGB":
+                        page_img = page_img.convert("RGB")
 
-            if output_format in {"JPEG", "JPEG2000"} and page_img.mode != "RGB":
-                page_img = page_img.convert("RGB")
+                    out_path = output_folder / f"{base}_page{index + 1}{ext_out}"
+                    if output_format == "SVG":
+                        save_as_svg(page_img, out_path)
+                    elif output_format == "JPEG":
+                        page_img.save(out_path, output_format, quality=100)
+                    elif output_format == "PDF":
+                        dpi = page_img.info.get("dpi", (300, 300))[0]
+                        page_img.save(out_path, output_format, resolution=dpi)
+                    else:
+                        page_img.save(out_path, output_format)
 
-            out_path = output_folder / f"{base}_page{index + 1}{ext_out}"
-            if output_format == "SVG":
-                save_as_svg(page_img, out_path)
-            elif output_format == "JPEG":
-                page_img.save(out_path, output_format, quality=100)
-            elif output_format == "PDF":
-                dpi = page_img.info.get("dpi", (300, 300))[0]
-                page_img.save(out_path, output_format, resolution=dpi)
-            else:
-                page_img.save(out_path, output_format)
-
-            logger.info("PDF page %d → %s", index + 1, out_path)
-            written += 1
-        except Exception as exc:
-            logger.error("Error converting PDF page %d of %s: %s", index + 1, file_path, exc)
+                logger.info("PDF page %d → %s", index + 1, out_path)
+                written += 1
+            except Exception as exc:
+                logger.error("Error converting PDF page %d of %s: %s", index + 1, file_path, exc)
+    finally:
+        doc.close()
 
     return written

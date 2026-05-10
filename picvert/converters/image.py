@@ -4,19 +4,21 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .svg import save_as_svg
 
 logger = logging.getLogger(__name__)
 
 # Register HEIC opener if pillow-heif is installed (optional dep — soft-fail).
+# Narrow the catch: ImportError = package missing; OSError = libheif missing or
+# load-time link failure. A blanket `except Exception` would swallow real bugs.
 try:
     from pillow_heif import register_heif_opener
 
     register_heif_opener()
     HEIC_AVAILABLE = True
-except Exception as exc:
+except (ImportError, OSError) as exc:
     HEIC_AVAILABLE = False
     logger.warning("pillow-heif not available, HEIC read/write disabled: %s", exc)
 
@@ -28,6 +30,9 @@ def convert_image_file(
     out_path = output_folder / (file_path.stem + ext_out)
 
     with Image.open(file_path) as img:
+        # Honour EXIF orientation so phone photos don't come out sideways.
+        img = ImageOps.exif_transpose(img)
+
         if output_format in {"JPEG", "JPEG2000", "HEIC"} and img.mode != "RGB":
             img = img.convert("RGB")
 

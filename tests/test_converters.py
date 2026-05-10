@@ -118,13 +118,26 @@ class TestDocumentConversion:
         cells = [[c.text for c in r.cells] for r in doc.tables[0].rows]
         assert cells == [["a", "b"], ["1", "2"]]
 
-    def test_xlsx_to_csv(self, tmp_path: Path) -> None:
+    def test_xlsx_to_csv_single_sheet(self, tmp_path: Path) -> None:
         src = _make_xlsx(tmp_path / "in.xlsx")
         n = convert_file(src, tmp_path / "out", "CSV")
         assert n == 1
         with (tmp_path / "out" / "in.csv").open() as f:
             rows = list(csv.reader(f))
         assert rows == [["h1", "h2"], ["v1", "v2"]]
+
+    def test_xlsx_to_csv_multi_sheet_writes_one_csv_per_sheet(self, tmp_path: Path) -> None:
+        src = tmp_path / "in.xlsx"
+        wb = Workbook()
+        wb.active.title = "Alpha"
+        wb.active.append(["a", "1"])
+        wb.create_sheet("Beta").append(["b", "2"])
+        wb.save(str(src))
+        out_dir = tmp_path / "out"
+        n = convert_file(src, out_dir, "CSV")
+        assert n == 2  # one file per sheet, no silent data loss
+        assert (out_dir / "in__Alpha.csv").exists()
+        assert (out_dir / "in__Beta.csv").exists()
 
     def test_xlsx_to_docx_multi_sheet(self, tmp_path: Path) -> None:
         src = tmp_path / "in.xlsx"

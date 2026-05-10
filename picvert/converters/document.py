@@ -9,7 +9,7 @@ Conversion matrix (all directions implemented):
     │ CSV        │  ✓   │  ✓   │  ✓¹  │
     └────────────┴──────┴──────┴──────┘
     ¹ same-format ⇒ copy
-    ² xlsx → csv only writes the first sheet
+    ² xlsx → csv writes one CSV per sheet (returns N)
 """
 from __future__ import annotations
 
@@ -31,16 +31,24 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _read_xlsx(path: Path) -> dict[str, list[list[str]]]:
-    """Return {sheet_name: rows} for every sheet in the workbook."""
+    """Return {sheet_name: rows} for every sheet in the workbook.
+
+    Raises ValueError if the workbook contains no readable sheets so callers
+    get a clean error instead of a downstream KeyError.
+    """
     wb = load_workbook(filename=str(path), data_only=True, read_only=True)
     sheets: dict[str, list[list[str]]] = {}
-    for name in wb.sheetnames:
-        ws = wb[name]
-        sheets[name] = [
-            ["" if cell is None else str(cell) for cell in row]
-            for row in ws.iter_rows(values_only=True)
-        ]
-    wb.close()
+    try:
+        for name in wb.sheetnames:
+            ws = wb[name]
+            sheets[name] = [
+                ["" if cell is None else str(cell) for cell in row]
+                for row in ws.iter_rows(values_only=True)
+            ]
+    finally:
+        wb.close()
+    if not sheets:
+        raise ValueError(f"xlsx file has no sheets: {path}")
     return sheets
 
 
@@ -66,13 +74,11 @@ def _read_docx(path: Path) -> tuple[list[str], list[list[list[str]]]]:
 
 def _write_csv(rows: Iterable[Iterable[str]], path: Path) -> None:
     with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(rows)
+        csv.writer(f).writerows(rows)
 
 
 def _write_xlsx(sheets: dict[str, list[list[str]]], path: Path) -> None:
     wb = Workbook()
-    # Workbook starts with one default sheet; we'll re-use it for the first.
     default_ws = wb.active
     first = True
     for name, rows in sheets.items():
@@ -87,19 +93,24 @@ def _write_xlsx(sheets: dict[str, list[list[str]]], path: Path) -> None:
     wb.save(str(path))
 
 
+def _add_table_to_doc(doc: DocxDocument, rows: list[list[str]]) -> None:
+    """Append a Word table built from `rows`. Empty rows ⇒ "(empty)" placeholder."""
+    if not rows:
+        doc.add_paragraph("(empty)")
+        return
+    cols = max(len(r) for r in rows)
+    table = doc.add_table(rows=len(rows), cols=cols)
+    table.style = "Table Grid"
+    for i, row in enumerate(rows):
+        for j in range(cols):
+            table.cell(i, j).text = row[j] if j < len(row) else ""
+
+
 def _write_docx_from_table(rows: list[list[str]], path: Path, title: str | None = None) -> None:
     doc = Document()
     if title:
         doc.add_heading(title, level=1)
-    if not rows:
-        doc.add_paragraph("(empty)")
-    else:
-        cols = max(len(r) for r in rows)
-        table = doc.add_table(rows=len(rows), cols=cols)
-        table.style = "Table Grid"
-        for i, row in enumerate(rows):
-            for j in range(cols):
-                table.cell(i, j).text = row[j] if j < len(row) else ""
+    _add_table_to_doc(doc, rows)
     doc.save(str(path))
 
 
@@ -107,15 +118,7 @@ def _write_docx_from_sheets(sheets: dict[str, list[list[str]]], path: Path) -> N
     doc = Document()
     for name, rows in sheets.items():
         doc.add_heading(name, level=1)
-        if not rows:
-            doc.add_paragraph("(empty)")
-        else:
-            cols = max(len(r) for r in rows)
-            table = doc.add_table(rows=len(rows), cols=cols)
-            table.style = "Table Grid"
-            for i, row in enumerate(rows):
-                for j in range(cols):
-                    table.cell(i, j).text = row[j] if j < len(row) else ""
+        _add_table_to_doc(doc, rows)
         doc.add_page_break()
     doc.save(str(path))
 
@@ -124,12 +127,24 @@ def _write_docx_from_sheets(sheets: dict[str, list[list[str]]], path: Path) -> N
 # Public dispatcher
 # ---------------------------------------------------------------------------
 
+def _is_same_file(a: Path, b: Path) -> bool:
+    """True when `a` and `b` point at the same on-disk location."""
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
 def convert_document_file(
     file_path: Path, output_folder: Path, output_format: str, ext_out: str
 ) -> int:
-    """Convert one document file. Returns 1 on success."""
+    """Convert one document file. Returns the number of files written."""
     src_ext = file_path.suffix.lower()
     out_path = output_folder / (file_path.stem + ext_out)
+
+    if _is_same_file(file_path, out_path):
+        logger.info("Skipping %s: source and destination are the same path", file_path)
+        return 0
 
     # Same format → copy.
     if (src_ext, output_format) in {(".docx", "DOCX"), (".xlsx", "XLSX"), (".csv", "CSV")}:
@@ -145,21 +160,22 @@ def convert_document_file(
             _write_docx_from_table(rows, out_path, title=file_path.stem)
         else:
             raise ValueError(f"Unsupported csv → {output_format}")
+        logger.info("Document converted %s → %s", file_path, out_path)
+        return 1
 
-    elif src_ext == ".xlsx":
+    if src_ext == ".xlsx":
         sheets = _read_xlsx(file_path)
         if output_format == "CSV":
-            # Pick the first sheet (CSV has no concept of multi-sheet).
-            first_name = next(iter(sheets), "Sheet1")
-            _write_csv(sheets[first_name], out_path)
-        elif output_format == "DOCX":
+            # One CSV per sheet — preserves data instead of silently dropping it.
+            return _xlsx_to_csv(sheets, file_path, output_folder, ext_out)
+        if output_format == "DOCX":
             _write_docx_from_sheets(sheets, out_path)
-        else:
-            raise ValueError(f"Unsupported xlsx → {output_format}")
+            logger.info("Document converted %s → %s", file_path, out_path)
+            return 1
+        raise ValueError(f"Unsupported xlsx → {output_format}")
 
-    elif src_ext == ".docx":
+    if src_ext == ".docx":
         paragraphs, tables = _read_docx(file_path)
-        # Strategy: prefer tables when present; fall back to paragraphs.
         if output_format == "XLSX":
             sheets: dict[str, list[list[str]]] = {}
             for i, t in enumerate(tables, 1):
@@ -176,9 +192,31 @@ def convert_document_file(
                 _write_csv([[p] for p in paragraphs], out_path)
         else:
             raise ValueError(f"Unsupported docx → {output_format}")
+        logger.info("Document converted %s → %s", file_path, out_path)
+        return 1
 
-    else:
-        raise ValueError(f"Unknown document type: {src_ext}")
+    raise ValueError(f"Unknown document type: {src_ext}")
 
-    logger.info("Document converted %s → %s", file_path, out_path)
-    return 1
+
+def _xlsx_to_csv(
+    sheets: dict[str, list[list[str]]],
+    file_path: Path,
+    output_folder: Path,
+    ext_out: str,
+) -> int:
+    """Write one CSV per sheet. Single-sheet → keep stem; multi → suffix with sheet name."""
+    if len(sheets) == 1:
+        name, rows = next(iter(sheets.items()))
+        out = output_folder / (file_path.stem + ext_out)
+        _write_csv(rows, out)
+        logger.info("Document converted %s → %s", file_path, out)
+        return 1
+
+    written = 0
+    for sheet_name, rows in sheets.items():
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in sheet_name)
+        out = output_folder / f"{file_path.stem}__{safe}{ext_out}"
+        _write_csv(rows, out)
+        logger.info("Document converted %s sheet %r → %s", file_path, sheet_name, out)
+        written += 1
+    return written

@@ -15,20 +15,28 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-def remove_background(img: Image.Image, bg_color=(255, 255, 255), tolerance: int = 30) -> Image.Image:
+def remove_background(
+    img: Image.Image,
+    bg_color: tuple[int, int, int] = (255, 255, 255),
+    tolerance: int = 30,
+) -> Image.Image:
+    """Make pixels close to `bg_color` fully transparent.
+
+    Uses Pillow's tobytes/frombytes (vs. the deprecated getdata/putdata) and
+    operates on the byte buffer directly — meaningfully faster than the
+    original per-pixel Python tuple loop, with no extra dependency.
+    """
     img = img.convert("RGBA")
-    data = img.getdata()
-    new_data = []
-    for r, g, b, a in data:
+    pixels = bytearray(img.tobytes())
+    bg_r, bg_g, bg_b = bg_color
+    for i in range(0, len(pixels), 4):
         if (
-            abs(r - bg_color[0]) < tolerance
-            and abs(g - bg_color[1]) < tolerance
-            and abs(b - bg_color[2]) < tolerance
+            abs(pixels[i] - bg_r) < tolerance
+            and abs(pixels[i + 1] - bg_g) < tolerance
+            and abs(pixels[i + 2] - bg_b) < tolerance
         ):
-            new_data.append((r, g, b, 0))
-        else:
-            new_data.append((r, g, b, a))
-    img.putdata(new_data)
+            pixels[i + 3] = 0
+    img.frombytes(bytes(pixels))
     return img
 
 
