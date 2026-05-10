@@ -1,7 +1,8 @@
 // Capsule (compact mode) window logic.
-// Click → expand into the main window. Drag a file onto the capsule → also
-// expand (file paths picked up via tauri://drag-drop and forwarded).
-// `data-tauri-drag-region` on body lets the user drag the window itself.
+//
+// Click → expand into the main window.
+// Drag (anywhere outside the button) → moves the window.
+// Drag a file onto the capsule → also expands.
 
 if (!window.__TAURI__) {
   document.body.innerHTML = "<p style='padding:1rem'>__TAURI__ missing</p>";
@@ -9,28 +10,63 @@ if (!window.__TAURI__) {
 }
 
 const { invoke } = window.__TAURI__.core;
+const webviewWindow = window.__TAURI__.webviewWindow;
 const listen = window.__TAURI__.event ? window.__TAURI__.event.listen : null;
 
 const capsule = document.getElementById("capsule");
 
-// Distinguish a click from the end of a drag so we don't expand whenever the
-// user finishes dragging. A click counts only when the mouse moved < 4 px
-// between mousedown and mouseup.
-let pressStart = null;
+// Click vs drag detection — using screen coords (not client) so the capsule
+// button itself can also start a drag without us mistaking the post-drag
+// mouseup for a click. We compare screenX/Y between mousedown and mouseup.
+//
+// NOTE: data-tauri-drag-region was REMOVED from the button so the JS
+// mousedown/mouseup actually fire reliably; we manually call startDragging()
+// after a small movement threshold.
+const DRAG_THRESHOLD = 4;
+let press = null;
+let dragging = false;
+let appWindow = null;
+
+if (webviewWindow && webviewWindow.getCurrentWindow) {
+  appWindow = webviewWindow.getCurrentWindow();
+}
+
 capsule.addEventListener("mousedown", (e) => {
-  pressStart = { x: e.clientX, y: e.clientY };
+  press = { x: e.screenX, y: e.screenY };
+  dragging = false;
 });
-capsule.addEventListener("mouseup", (e) => {
-  if (!pressStart) return;
-  const dx = Math.abs(e.clientX - pressStart.x);
-  const dy = Math.abs(e.clientY - pressStart.y);
-  pressStart = null;
-  if (dx < 4 && dy < 4) {
-    invoke("show_main_window");
+
+capsule.addEventListener("mousemove", async (e) => {
+  if (!press || dragging) return;
+  const dx = Math.abs(e.screenX - press.x);
+  const dy = Math.abs(e.screenY - press.y);
+  if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+    dragging = true;
+    if (appWindow && appWindow.startDragging) {
+      try {
+        await appWindow.startDragging();
+      } catch (err) {
+        console.error("startDragging failed", err);
+      }
+    }
   }
 });
 
-// Drag-drop visual feedback (HTML5 events).
+capsule.addEventListener("mouseup", () => {
+  if (!press) return;
+  const wasDrag = dragging;
+  press = null;
+  dragging = false;
+  if (!wasDrag) invoke("show_main_window");
+});
+
+// Reset state if mouse leaves window mid-drag.
+capsule.addEventListener("mouseleave", () => {
+  press = null;
+  dragging = false;
+});
+
+// Drag-drop visual feedback.
 document.body.addEventListener("dragover", (e) => {
   e.preventDefault();
   document.body.classList.add("dragover");
@@ -43,10 +79,16 @@ document.body.addEventListener("drop", (e) => {
   document.body.classList.remove("dragover");
 });
 
-// When the OS reports a drag-drop, expand to the main window (which will
-// receive the same event since both windows share the listener).
-if (listen) {
-  listen("tauri://drag-drop", () => {
+// Scope the OS drop event to THIS window so dropping on the capsule does not
+// also trigger the main window's add-files handler (and vice versa).
+if (appWindow && appWindow.listen) {
+  appWindow.listen("tauri://drag-drop", () => {
     invoke("show_main_window");
-  });
+  }).catch(() => {});
+} else if (listen) {
+  // Fallback to global listener.
+  listen("tauri://drag-drop", () => invoke("show_main_window"));
 }
+
+// Suppress dev context menu in production.
+window.addEventListener("contextmenu", (e) => e.preventDefault());

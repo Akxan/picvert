@@ -22,6 +22,7 @@ use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::oneshot;
 
 const SIDECAR_BIN: &str = if cfg!(windows) {
@@ -250,11 +251,49 @@ async fn pick_output_folder(app: AppHandle) -> Option<String> {
     rx.recv().ok().flatten().map(|p| p.to_string())
 }
 
+#[derive(Serialize)]
+struct UpdateCheckResult {
+    available: bool,
+    version: Option<String>,
+}
+
+/// Ask tauri-plugin-updater whether a newer release is on the configured
+/// endpoint. We don't auto-install — the dialog wants to tell the user first.
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResult, String> {
+    let updater = app
+        .updater()
+        .map_err(|e| format!("updater unavailable: {e}"))?;
+    match updater.check().await {
+        Ok(Some(update)) => Ok(UpdateCheckResult {
+            available: true,
+            version: Some(update.version.clone()),
+        }),
+        Ok(None) => Ok(UpdateCheckResult {
+            available: false,
+            version: None,
+        }),
+        Err(e) => Err(format!("check failed: {e}")),
+    }
+}
+
+/// Open a folder in the OS file manager.
+///
+/// Hardened against the renderer being able to use this as a generic URL
+/// opener: the path must be an absolute, existing **directory** on disk.
+/// Anything else (URLs, files, custom URL schemes) is refused.
 #[tauri::command]
 async fn open_path(app: AppHandle, path: String) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("refused: path must be absolute".into());
+    }
+    if !p.is_dir() {
+        return Err("refused: path is not a directory or does not exist".into());
+    }
+    // ShellExt is already imported at the top of the module.
     app.shell()
-        .open(path, None)
+        .open(p.to_string_lossy().to_string(), None)
         .map_err(|e| format!("open failed: {e}"))
 }
 
@@ -282,7 +321,7 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     // First time: create the compact window.
-    WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
+    let win = WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
         .title("Picvert")
         .inner_size(96.0, 96.0)
         .resizable(false)
@@ -293,6 +332,14 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         .visible(true)
         .build()
         .map_err(|e| e.to_string())?;
+    // Park it near the top-right of the active monitor so users can find it.
+    if let Ok(Some(monitor)) = win.current_monitor() {
+        let size = monitor.size();
+        let pos = monitor.position();
+        let x = pos.x + size.width as i32 - 120; // 96 + 24 gutter
+        let y = pos.y + 60;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
     Ok(())
 }
 
@@ -320,17 +367,27 @@ fn build_tray(app: &AppHandle) -> Result<()> {
         ],
     )?;
 
-    TrayIconBuilder::with_id("main")
+    let mut builder = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().unwrap())
         .icon_as_template(true) // macOS: render as a template (auto light/dark)
-        .menu(&menu)
-        .show_menu_on_left_click(true)
+        .menu(&menu);
+    // macOS users expect left-click to open the menu (no primary action set);
+    // Windows users expect right-click. Match the convention per platform.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.show_menu_on_left_click(true);
+    }
+    builder
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => {
-                let _ = show_main_window(app.clone());
+                if let Err(e) = show_main_window(app.clone()) {
+                    eprintln!("tray show_main_window failed: {e}");
+                }
             }
             "compact" => {
-                let _ = show_compact_window(app.clone());
+                if let Err(e) = show_compact_window(app.clone()) {
+                    eprintln!("tray show_compact_window failed: {e}");
+                }
             }
             "about" => {
                 if let Some(w) = app.get_webview_window("main") {
@@ -368,6 +425,7 @@ pub fn run() {
             show_main_window,
             show_compact_window,
             open_path,
+            check_for_updates,
         ])
         .setup(|app| {
             // Tray icon — always present, even when no windows are open.

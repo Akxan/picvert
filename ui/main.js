@@ -16,7 +16,9 @@ if (!window.__TAURI__) {
 }
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
-const listen = window.__TAURI__.event ? window.__TAURI__.event.listen : null;
+const webviewWindow = window.__TAURI__.webviewWindow;
+const appWindow =
+  webviewWindow && webviewWindow.getCurrentWindow ? webviewWindow.getCurrentWindow() : null;
 
 // ─────────────────────────────────────────────────── DOM refs
 
@@ -39,9 +41,12 @@ const openOutputBtn = document.getElementById("open-output-btn");
 
 // ─────────────────────────────────────────────────── state
 
+const LS_OUTPUT = "picvert.outputFolder";
+
 let files = [];
 let outputFolder = null;
 let engineReadyMessage = null;
+let busy = false; // suppresses ✕ remove buttons while a batch is running
 const isImageExt = (name) =>
   /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic)$/i.test(name);
 
@@ -71,12 +76,20 @@ function setOutputFolder(path) {
     outputFolderEl.classList.remove("muted");
     outputFolderEl.removeAttribute("data-i18n");
     openOutputBtn.classList.remove("hidden");
+    try { localStorage.setItem(LS_OUTPUT, path); } catch {}
   } else {
     outputFolderEl.textContent = t("output_unset");
     outputFolderEl.setAttribute("data-i18n", "output_unset");
     outputFolderEl.classList.add("muted");
     openOutputBtn.classList.add("hidden");
   }
+}
+
+function loadSavedOutputFolder() {
+  try {
+    const saved = localStorage.getItem(LS_OUTPUT);
+    if (saved) setOutputFolder(saved);
+  } catch {}
 }
 
 // ─────────────────────────────────────────────────── i18n bootstrap
@@ -123,7 +136,8 @@ async function init() {
   document.body.classList.add("engine-loading");
   engineReadyMessage = (tt) => tt("engine_loading");
   convertBtn.disabled = true;
-  setOutputFolder(null);
+  loadSavedOutputFolder();
+  if (!outputFolder) setOutputFolder(null);
   applyTranslations();
   setEngineStatus("loading", t("engine_loading"));
 
@@ -173,13 +187,22 @@ dropzone.addEventListener("drop", (e) => {
   dropzone.classList.remove("dragover");
 });
 
-if (listen) {
-  listen("tauri://drag-drop", (event) => {
-    const paths = event.payload?.paths || [];
-    addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
-  });
-  listen("tauri://drag-enter", () => dropzone.classList.add("dragover"));
-  listen("tauri://drag-leave", () => dropzone.classList.remove("dragover"));
+// OS-level drag events scoped to THIS window so the capsule window doesn't
+// also receive them (review issue #5).
+if (appWindow && appWindow.listen) {
+  appWindow
+    .listen("tauri://drag-drop", (event) => {
+      dropzone.classList.remove("dragover");
+      const paths = event.payload?.paths || [];
+      addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
+    })
+    .catch(() => {});
+  appWindow
+    .listen("tauri://drag-enter", () => dropzone.classList.add("dragover"))
+    .catch(() => {});
+  appWindow
+    .listen("tauri://drag-leave", () => dropzone.classList.remove("dragover"))
+    .catch(() => {});
 }
 
 function addFiles(items) {
@@ -273,12 +296,14 @@ clearBtn.addEventListener("click", () => {
   render();
 });
 
-function setUiBusy(busy) {
-  convertBtn.disabled = busy;
-  clearBtn.disabled = busy;
-  formatSelect.disabled = busy;
-  langSelect.disabled = busy;
-  changeOutputBtn.disabled = busy;
+function setUiBusy(b) {
+  busy = b;
+  convertBtn.disabled = b;
+  clearBtn.disabled = b;
+  formatSelect.disabled = b;
+  langSelect.disabled = b;
+  changeOutputBtn.disabled = b;
+  document.body.classList.toggle("busy", b);
 }
 
 // ─────────────────────────────────────────────────── render
@@ -342,7 +367,14 @@ function render() {
     removeBtn.title = t("btn_remove_file");
     removeBtn.setAttribute("aria-label", t("btn_remove_file"));
     removeBtn.textContent = "✕";
-    removeBtn.addEventListener("click", () => removeFile(idx));
+    // Don't let users splice the queue while a batch is in flight.
+    if (busy) removeBtn.disabled = true;
+    removeBtn.addEventListener("click", () => {
+      if (busy) return;
+      // Locate by identity, not stale closure index — survives reorderings.
+      const i = files.indexOf(f);
+      if (i >= 0) removeFile(i);
+    });
     row.appendChild(removeBtn);
 
     fileListEl.appendChild(row);
@@ -371,14 +403,11 @@ function openAbout() {
 async function checkForUpdates() {
   updateStatusEl.textContent = t("update_checking");
   try {
-    const updater = window.__TAURI__.updater;
-    if (!updater || !updater.check) {
-      updateStatusEl.textContent = t("update_failed", { err: "updater plugin unavailable" });
-      return;
-    }
-    const update = await updater.check();
-    if (update && update.available) {
-      updateStatusEl.textContent = t("update_available", { ver: update.version });
+    // tauri-plugin-updater is NOT exposed by withGlobalTauri. We go through
+    // a Rust command (`check_for_updates`) that calls app.updater().check().
+    const r = await invoke("check_for_updates");
+    if (r.available) {
+      updateStatusEl.textContent = t("update_available", { ver: r.version });
     } else {
       updateStatusEl.textContent = t("update_uptodate");
     }

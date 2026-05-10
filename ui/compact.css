@@ -61,6 +61,14 @@ html, body {
   }
 }
 
+/* Honour user's "reduce motion" setting (accessibility + battery). */
+@media (prefers-reduced-motion: reduce) {
+  #capsule {
+    animation: none;
+    transition: none;
+  }
+}
+
 /* When a file is dragged over, swell + recolour to invite the drop. */
 body.dragover #capsule {
   background: linear-gradient(135deg, #c9a87c 0%, #c4a6a0 100%);
