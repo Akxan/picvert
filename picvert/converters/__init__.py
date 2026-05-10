@@ -11,6 +11,7 @@ from ..constants import (
     IMAGE_EXTS,
     IMAGE_OUTPUT_FORMATS,
     PDF_EXTS,
+    SVG_INPUT_EXTS,
 )
 from .document import convert_document_file
 from .image import convert_image_file
@@ -36,6 +37,13 @@ def convert_file(file_path: Path, output_folder: Path, selected_format: str) -> 
 
     if ext_in in PDF_EXTS:
         return convert_pdf_file(file_path, output_folder, output_format, ext_out)
+
+    if ext_in in SVG_INPUT_EXTS:
+        # SVG is rendered by PyMuPDF as a single-"page" doc; reuse the PDF
+        # converter but suppress the _page1 suffix for the typical 1-page case.
+        return convert_pdf_file(
+            file_path, output_folder, output_format, ext_out, single_page_naming=True,
+        )
 
     if ext_in in DOC_EXTS:
         if output_format not in DOC_OUTPUT_FORMATS:

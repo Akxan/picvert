@@ -8,25 +8,33 @@
   </head>
   <body>
     <header>
-      <h1>Picvert</h1>
-      <p class="subtitle">Batch image / PDF / document converter</p>
+      <div class="header-row">
+        <div>
+          <h1 data-i18n="title">Picvert</h1>
+          <p class="subtitle" data-i18n="subtitle">Batch image / PDF / document converter</p>
+        </div>
+        <div class="lang-picker">
+          <label data-i18n="label_lang" for="lang-select">Language</label>
+          <select id="lang-select"></select>
+        </div>
+      </div>
     </header>
 
     <main>
       <section id="dropzone" class="dropzone">
-        <p class="dropzone-prompt">Drop files here or click to select</p>
+        <p class="dropzone-prompt" data-i18n="drop_prompt">Drop files here or click to select</p>
         <input id="file-input" type="file" multiple hidden />
       </section>
 
       <section class="controls">
-        <label for="format-select">Output format:</label>
+        <label for="format-select" data-i18n="label_output_format">Output format:</label>
         <select id="format-select"></select>
-        <button id="convert-btn">Start Conversion</button>
-        <button id="clear-btn">Clear</button>
+        <button id="convert-btn" data-i18n="btn_convert">Start Conversion</button>
+        <button id="clear-btn" data-i18n="btn_clear">Clear</button>
       </section>
 
       <section id="file-list" class="file-list">
-        <p class="empty">No files yet.</p>
+        <p class="empty" data-i18n="list_empty">No files yet.</p>
       </section>
 
       <section id="progress" class="progress hidden">

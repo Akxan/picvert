@@ -10,13 +10,15 @@
 // Requires `withGlobalTauri: true` in tauri.conf.json so the namespace is
 // injected for vanilla HTML/JS (i.e. no npm/bundler in the loop).
 
+import { SUPPORTED_LANGS, getLang, setLang, onLangChange, t, translations } from "./i18n.js";
+
 if (!window.__TAURI__) {
   document.addEventListener("DOMContentLoaded", () => {
     document.body.innerHTML =
       '<div style="padding:2rem;font-family:system-ui;color:#b00">' +
-      '<h2>Picvert init failed</h2>' +
-      '<p>window.__TAURI__ is not defined. The shell did not inject the API.</p>' +
-      '<p>This means <code>withGlobalTauri</code> is not enabled, or the page was opened outside Tauri.</p>' +
+      "<h2>Picvert init failed</h2>" +
+      "<p>window.__TAURI__ is not defined. The shell did not inject the API.</p>" +
+      "<p>This means <code>withGlobalTauri</code> is not enabled, or the page was opened outside Tauri.</p>" +
       "</div>";
   });
   throw new Error("__TAURI__ not injected");
@@ -36,18 +38,66 @@ const barFill = document.getElementById("bar-fill");
 const progressText = document.getElementById("progress-text");
 const versionEl = document.getElementById("version");
 const engineStatusEl = document.getElementById("engine-status");
+const langSelect = document.getElementById("lang-select");
 
-let files = []; // [{ path, name, status }]
+let files = [];
 let outputFolder = null;
+let engineReadyMessage = null; // remember last status so language switch can re-render it
 
-// ---------------------------------------------------------------------- init
+// ─────────────────────────────────────────────────── i18n bootstrap
+
+function applyTranslations() {
+  document.documentElement.setAttribute("lang", getLang());
+  document.title = t("title");
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  }
+  // Things not handled by data-i18n (dynamic state):
+  if (engineReadyMessage) {
+    engineStatusEl.textContent = engineReadyMessage(t);
+  }
+  // Re-render file rows so localised "queued" / "ok" / "error: ..." update.
+  render();
+}
+
+function buildLangPicker() {
+  langSelect.innerHTML = "";
+  for (const lang of SUPPORTED_LANGS) {
+    const opt = document.createElement("option");
+    opt.value = lang;
+    opt.textContent = translations[lang][`lang_${langName(lang)}`];
+    langSelect.appendChild(opt);
+  }
+  langSelect.value = getLang();
+  langSelect.addEventListener("change", () => setLang(langSelect.value));
+}
+
+function langName(lang) {
+  return { en: "english", es: "spanish", ru: "russian", zh: "chinese" }[lang] || "english";
+}
+
+onLangChange(applyTranslations);
+
+// ─────────────────────────────────────────────────── engine init
+
 async function init() {
+  buildLangPicker();
+
+  // Show "starting…" immediately so the user doesn't see a stale English
+  // placeholder during the ~6 s sidecar cold start.
+  engineReadyMessage = (tt) => tt("engine_loading");
+  convertBtn.disabled = true;
+  applyTranslations();
+
   try {
     const ping = await invoke("engine_ping");
     versionEl.textContent = `v${ping.version}`;
-    engineStatusEl.textContent = "Engine: ✅ ready";
+    engineReadyMessage = (tt) => tt("engine_ready");
+    engineStatusEl.textContent = engineReadyMessage(t);
+    convertBtn.disabled = false;
   } catch (err) {
-    engineStatusEl.textContent = `Engine: ❌ ${err}`;
+    engineReadyMessage = (tt) => tt("engine_error", { err: errMessage(err) });
+    engineStatusEl.textContent = engineReadyMessage(t);
   }
 
   try {
@@ -64,7 +114,12 @@ async function init() {
   }
 }
 
-// ---------------------------------------------------------------- file pickers
+// Suppress the WebKit context menu so production users don't see
+// "Reload" / "Inspect Element". Cmd+Opt+I still opens devtools for us.
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// ─────────────────────────────────────────────────── file pickers
+
 fileInput.addEventListener("change", () => {
   for (const f of fileInput.files) addFile({ path: f.path || f.name, name: f.name });
   render();
@@ -81,7 +136,6 @@ dropzone.addEventListener("drop", (e) => {
   dropzone.classList.remove("dragover");
 });
 
-// Tauri's native file-drop event gives us real OS paths.
 if (listen) {
   listen("tauri://drag-drop", (event) => {
     const paths = event.payload?.paths || [];
@@ -94,13 +148,22 @@ if (listen) {
 
 function addFile(f) {
   if (files.some((existing) => existing.path === f.path)) return;
-  files.push({ ...f, status: "queued" });
+  files.push({ ...f, statusKey: "queued" });
 }
 
-// ---------------------------------------------------------------- conversion
+/** Tauri returns errors as { kind, message }. Show the message. */
+function errMessage(err) {
+  if (err && typeof err === "object") {
+    return err.message || err.kind || JSON.stringify(err);
+  }
+  return String(err);
+}
+
+// ─────────────────────────────────────────────────── conversion
+
 convertBtn.addEventListener("click", async () => {
   if (files.length === 0) {
-    alert("Add some files first.");
+    alert(t("msg_no_files"));
     return;
   }
   if (!outputFolder) {
@@ -115,7 +178,7 @@ convertBtn.addEventListener("click", async () => {
 
   const fmt = formatSelect.value;
   for (const f of files) {
-    f.status = "running";
+    f.statusKey = "running";
     render();
     try {
       const r = await invoke("convert_one", {
@@ -123,10 +186,12 @@ convertBtn.addEventListener("click", async () => {
         outDir: outputFolder,
         format: fmt,
       });
-      f.status = `ok (${r.written})`;
+      f.statusKey = "ok";
+      f.statusParams = { n: r.written };
       f.statusClass = "ok";
     } catch (err) {
-      f.status = `error: ${err}`;
+      f.statusKey = "err";
+      f.statusParams = { err: errMessage(err) };
       f.statusClass = "err";
     }
     done++;
@@ -149,12 +214,18 @@ function setUiBusy(busy) {
   convertBtn.disabled = busy;
   clearBtn.disabled = busy;
   formatSelect.disabled = busy;
+  langSelect.disabled = busy;
 }
 
-// ------------------------------------------------------------------- render
+// ─────────────────────────────────────────────────── render
+
 function render() {
   if (files.length === 0) {
-    fileListEl.innerHTML = '<p class="empty">No files yet.</p>';
+    fileListEl.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = t("list_empty");
+    fileListEl.appendChild(p);
     return;
   }
   fileListEl.innerHTML = "";
@@ -166,7 +237,7 @@ function render() {
     name.textContent = f.name;
     const status = document.createElement("span");
     status.className = `status ${f.statusClass || ""}`.trim();
-    status.textContent = f.status;
+    status.textContent = t(`status_${f.statusKey}`, f.statusParams || {});
     row.appendChild(name);
     row.appendChild(status);
     fileListEl.appendChild(row);

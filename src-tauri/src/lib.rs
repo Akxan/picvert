@@ -14,7 +14,7 @@ use std::sync::{
 };
 
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -205,23 +205,20 @@ async fn engine_list_formats(app: AppHandle) -> Result<Value, EngineErr> {
     run_engine(&app, json!({"action":"list_formats"})).await
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConvertArgs {
+#[tauri::command(rename_all = "camelCase")]
+async fn convert_one(
+    app: AppHandle,
     input: String,
     out_dir: String,
     format: String,
-}
-
-#[tauri::command]
-async fn convert_one(app: AppHandle, args: ConvertArgs) -> Result<Value, EngineErr> {
+) -> Result<Value, EngineErr> {
     run_engine(
         &app,
         json!({
             "action": "convert",
-            "input": args.input,
-            "output": args.out_dir,
-            "format": args.format,
+            "input": input,
+            "output": out_dir,
+            "format": format,
         }),
     )
     .await
@@ -251,6 +248,19 @@ pub fn run() {
             convert_one,
             pick_output_folder,
         ])
+        .setup(|app| {
+            // Pre-spawn the sidecar so the ~6 s PyInstaller cold start runs
+            // in parallel with the window and JS bootstrapping. By the time
+            // the frontend's first invoke arrives, the engine is usually
+            // already up.
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = run_engine(&app_handle, json!({"action": "ping"})).await {
+                    eprintln!("engine pre-spawn failed: {} — {}", e.kind, e.message);
+                }
+            });
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

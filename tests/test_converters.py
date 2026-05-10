@@ -117,6 +117,21 @@ class TestImageConversion:
         with pytest.raises(Exception):  # Pillow's UnidentifiedImageError or subclass
             convert_file(bad, tmp_path / "out", "JPEG")
 
+    def test_svg_to_jpeg(self, tmp_path: Path) -> None:
+        """SVG inputs are rendered via PyMuPDF (no Pillow SVG decoder)."""
+        src = tmp_path / "icon.svg"
+        src.write_text(
+            '<?xml version="1.0"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">'
+            '<circle cx="30" cy="30" r="25" fill="blue"/></svg>'
+        )
+        n = convert_file(src, tmp_path / "out", "JPEG")
+        assert n == 1
+        out = tmp_path / "out" / "icon.jpg"  # single-page → no _page1 suffix
+        assert out.exists()
+        with Image.open(out) as img:
+            assert img.format == "JPEG"
+
     def test_unknown_output_format_rejected(self, tmp_path: Path) -> None:
         """Critical regression: previously fell back to JPEG silently (C1)."""
         src = _make_png(tmp_path / "in.png")

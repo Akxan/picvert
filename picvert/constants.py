@@ -5,14 +5,17 @@ APP_NAME = "Picvert"
 APP_VERSION = "1.1.0"
 APP_AUTHOR = "Julio"
 
+# Raster image inputs — read by Pillow.
 IMAGE_EXTS = {
     ".png", ".jpg", ".jpeg", ".jfif", ".bmp", ".gif", ".tiff",
-    ".webp", ".ico", ".ppm", ".tga", ".jp2", ".svg", ".heic",
+    ".webp", ".ico", ".ppm", ".tga", ".jp2", ".heic",
 }
+# Vector / paged inputs — rendered by PyMuPDF, which handles SVG and PDF.
 PDF_EXTS = {".pdf"}
+SVG_INPUT_EXTS = {".svg"}
 DOC_EXTS = {".docx", ".xlsx", ".csv"}
 
-SUPPORTED_EXTS = sorted(IMAGE_EXTS | PDF_EXTS | DOC_EXTS)
+SUPPORTED_EXTS = sorted(IMAGE_EXTS | PDF_EXTS | SVG_INPUT_EXTS | DOC_EXTS)
 
 FORMAT_MAPPING: dict[str, tuple[str, str]] = {
     "JPEG": ("JPEG", ".jpg"),
