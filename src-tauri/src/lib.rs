@@ -252,17 +252,18 @@ async fn convert_one(
     input: String,
     out_dir: String,
     format: String,
+    quality: Option<u32>,
+    max_dim: Option<u32>,
 ) -> Result<Value, EngineErr> {
-    run_engine(
-        &app,
-        json!({
-            "action": "convert",
-            "input": input,
-            "output": out_dir,
-            "format": format,
-        }),
-    )
-    .await
+    let mut req = serde_json::json!({
+        "action": "convert",
+        "input": input,
+        "output": out_dir,
+        "format": format,
+    });
+    if let Some(q) = quality { req["quality"] = json!(q); }
+    if let Some(m) = max_dim { req["maxDim"] = json!(m); }
+    run_engine(&app, req).await
 }
 
 #[tauri::command]
@@ -272,6 +273,70 @@ async fn pick_output_folder(app: AppHandle) -> Option<String> {
         let _ = tx.send(folder);
     });
     rx.recv().ok().flatten().map(|p| p.to_string())
+}
+
+/// Supported file extensions — kept here in lower case so a folder walk
+/// doesn't have to round-trip to the engine. Mirrors picvert/constants.py
+/// SUPPORTED_EXTS.
+const SUPPORTED_EXTS: &[&str] = &[
+    ".png", ".jpg", ".jpeg", ".jfif", ".bmp", ".gif", ".tiff", ".tif",
+    ".webp", ".ico", ".ppm", ".tga", ".jp2", ".heic",
+    ".pdf", ".svg",
+    ".docx", ".xlsx", ".csv",
+];
+
+fn is_supported_ext(name: &str) -> bool {
+    if let Some(ext_pos) = name.rfind('.') {
+        let ext = name[ext_pos..].to_lowercase();
+        SUPPORTED_EXTS.iter().any(|s| *s == ext.as_str())
+    } else {
+        false
+    }
+}
+
+/// Recursively walk a folder and collect every supported file path. Stops
+/// at MAX_FILES_PER_DROP to avoid the UI choking on a 50k-file directory.
+fn walk_folder(root: &std::path::Path, out: &mut Vec<String>) {
+    const MAX_FILES_PER_DROP: usize = 5000;
+    if out.len() >= MAX_FILES_PER_DROP {
+        return;
+    }
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        if out.len() >= MAX_FILES_PER_DROP {
+            return;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            walk_folder(&path, out);
+        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if is_supported_ext(name) {
+                if let Some(s) = path.to_str() {
+                    out.push(s.to_string());
+                }
+            }
+        }
+    }
+}
+
+/// Given a list of paths (mix of files and folders), expand any folders
+/// recursively into their supported files. Used by the drag-drop and
+/// file-picker handlers so users can drag a whole folder of images.
+#[tauri::command]
+fn expand_folders(paths: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in paths {
+        let path = std::path::PathBuf::from(&p);
+        if path.is_dir() {
+            walk_folder(&path, &mut out);
+        } else if path.is_file() {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// Open a multi-select file picker. Returns absolute paths the renderer
@@ -639,6 +704,7 @@ pub fn run() {
             convert_one,
             pick_output_folder,
             pick_input_files,
+            expand_folders,
             show_main_window,
             show_compact_window,
             open_path,

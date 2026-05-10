@@ -307,18 +307,37 @@ body.leaving {
   letter-spacing: 0.06em;
 }
 .ctrl-group select,
-.controls select {
+.controls select,
+.ctrl-group input[type="number"] {
   padding: 0.45rem 0.7rem;
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
-  background: var(--bg-elev);
+  background: var(--bg-card);
   color: var(--fg);
   font-size: 0.88rem;
-  min-width: 8rem;
+  min-width: 7rem;
   cursor: pointer;
   transition: border-color var(--t-fast) var(--ease-out);
 }
-.controls select:hover { border-color: var(--accent); }
+.controls select:hover,
+.ctrl-group input[type="number"]:hover { border-color: var(--accent); }
+.ctrl-group input[type="number"] { min-width: 6rem; max-width: 7rem; }
+
+/* Quality slider (only shown for lossy formats). */
+#quality-group { min-width: 9rem; }
+#quality-group.disabled { opacity: 0.4; pointer-events: none; }
+.quality-val {
+  font-variant-numeric: tabular-nums;
+  margin-left: 0.35em;
+  color: var(--accent);
+  font-weight: 600;
+}
+#quality-slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin-top: 0.3rem;
+}
 
 /* ─────────────────────── buttons ─────────────────────── */
 

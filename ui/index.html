@@ -72,6 +72,17 @@
           <span class="ctrl-label muted" data-i18n="label_output_format">Output format</span>
           <select id="format-select"></select>
         </label>
+        <label class="ctrl-group" id="quality-group">
+          <span class="ctrl-label muted">
+            <span data-i18n="label_quality">Quality</span>
+            <span id="quality-val" class="quality-val">90</span>
+          </span>
+          <input id="quality-slider" type="range" min="60" max="100" step="1" value="90" />
+        </label>
+        <label class="ctrl-group">
+          <span class="ctrl-label muted" data-i18n="label_max_dim">Max width (px)</span>
+          <input id="max-dim-input" type="number" min="64" step="32" placeholder="—" />
+        </label>
         <button id="convert-btn" class="btn-primary" data-i18n="btn_convert">
           Start Conversion
         </button>

@@ -50,7 +50,14 @@ def _handle(req: dict[str, Any]) -> dict[str, Any]:
             input_path = Path(req["input"])
             output_folder = Path(req["output"])
             fmt = req["format"]
-            written = convert_file(input_path, output_folder, fmt)
+            # Optional encoding controls — UI passes them per-batch.
+            quality = int(req.get("quality", 90))
+            max_dim_raw = req.get("maxDim") or req.get("max_dim")
+            max_dim = int(max_dim_raw) if max_dim_raw else None
+            written = convert_file(
+                input_path, output_folder, fmt,
+                quality=quality, max_dim=max_dim,
+            )
             return _ok(rid, {"written": written})
 
         if action == "shutdown":

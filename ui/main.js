@@ -22,6 +22,10 @@ const appWindow = currentWebviewWindow();
 
 const dropzone = $("dropzone");
 const formatSelect = $("format-select");
+const qualityGroup = $("quality-group");
+const qualitySlider = $("quality-slider");
+const qualityValEl = $("quality-val");
+const maxDimInput = $("max-dim-input");
 const convertBtn = $("convert-btn");
 const cancelBtn = $("cancel-btn");
 const clearBtn = $("clear-btn");
@@ -50,7 +54,10 @@ const toastStack = $("toast-stack");
 // ─── state ────────────────────────────────────────────────────────────────
 
 const LS_OUTPUT = "picvert.outputFolder";
+const LS_QUALITY = "picvert.quality";
+const LS_MAX_DIM = "picvert.maxDim";
 const IMAGE_EXT = /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic)$/i;
+const LOSSY_FORMATS = new Set(["JPEG", "JPG", "JFIF", "WEBP", "JPEG2000", "HEIC"]);
 
 let files = [];
 let outputFolder = null;
@@ -128,6 +135,32 @@ function loadSavedOutputFolder() {
   } catch {}
 }
 
+// ─── quality / max-dim controls ───────────────────────────────────────────
+
+function refreshQualityVisibility() {
+  const isLossy = LOSSY_FORMATS.has(formatSelect.value);
+  qualityGroup.classList.toggle("disabled", !isLossy);
+}
+
+function loadSavedEncodeOpts() {
+  try {
+    const q = localStorage.getItem(LS_QUALITY);
+    if (q) { qualitySlider.value = q; qualityValEl.textContent = q; }
+    const m = localStorage.getItem(LS_MAX_DIM);
+    if (m) maxDimInput.value = m;
+  } catch {}
+}
+qualitySlider.addEventListener("input", () => {
+  qualityValEl.textContent = qualitySlider.value;
+  try { localStorage.setItem(LS_QUALITY, qualitySlider.value); } catch {}
+});
+maxDimInput.addEventListener("change", () => {
+  try {
+    if (maxDimInput.value) localStorage.setItem(LS_MAX_DIM, maxDimInput.value);
+    else localStorage.removeItem(LS_MAX_DIM);
+  } catch {}
+});
+
 // ─── i18n bootstrap ───────────────────────────────────────────────────────
 
 function applyTranslations() {
@@ -170,6 +203,7 @@ async function init() {
   document.body.classList.add("engine-loading");
   convertBtn.disabled = true;
   loadSavedOutputFolder();
+  loadSavedEncodeOpts();
   if (!outputFolder) setOutputFolder(null);
   applyTranslations();
 
@@ -197,6 +231,8 @@ async function init() {
       formatSelect.appendChild(opt);
     }
     populateHelpChips();
+    refreshQualityVisibility();
+    formatSelect.addEventListener("change", refreshQualityVisibility);
   } catch (err) {
     console.error("list_formats failed", err);
   }
@@ -229,9 +265,14 @@ dropzone.addEventListener("drop", (e) => {
 });
 
 if (appWindow?.listen) {
-  appWindow.listen("tauri://drag-drop", (event) => {
+  appWindow.listen("tauri://drag-drop", async (event) => {
     dropzone.classList.remove("dragover");
-    const paths = event.payload?.paths || [];
+    const raw = event.payload?.paths || [];
+    if (raw.length === 0) return;
+    // Expand any folders in the drop into their contained supported files.
+    let paths = raw;
+    try { paths = await invoke("expand_folders", { paths: raw }); }
+    catch (e) { console.warn("expand_folders failed", e); }
     addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
   }).catch(() => {});
   appWindow.listen("tauri://drag-enter", () => dropzone.classList.add("dragover")).catch(() => {});
@@ -305,16 +346,22 @@ async function startConversion() {
   barFill.style.width = "0%";
   let done = 0, ok = 0, err = 0;
   const fmt = formatSelect.value;
+  const quality = Number(qualitySlider.value) || 90;
+  const maxDimRaw = Number(maxDimInput.value) || 0;
+  const maxDim = maxDimRaw > 0 ? maxDimRaw : null;
 
   for (const f of files) {
     if (cancelRequested) {
-      f.statusKey = "queued";   // unmark anything left
+      f.statusKey = "queued";
       continue;
     }
     f.statusKey = "running";
     render();
     try {
-      const r = await invoke("convert_one", { input: f.path, outDir: outputFolder, format: fmt });
+      const r = await invoke("convert_one", {
+        input: f.path, outDir: outputFolder, format: fmt,
+        quality, maxDim,
+      });
       f.statusKey = "ok";
       f.statusParams = { n: r.written };
       f.statusClass = "ok";

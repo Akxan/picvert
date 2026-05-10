@@ -24,8 +24,24 @@ class UnsupportedConversion(ValueError):
     """Raised when input/output combo is not supported."""
 
 
-def convert_file(file_path: Path, output_folder: Path, selected_format: str) -> int:
+def convert_file(
+    file_path: Path,
+    output_folder: Path,
+    selected_format: str,
+    *,
+    quality: int = 90,
+    max_dim: int | None = None,
+) -> int:
     """Dispatch a single file to the right converter.
+
+    Args:
+        file_path:        input file (single path; folders should be expanded by the caller).
+        output_folder:    destination directory (created if missing).
+        selected_format:  one of constants.FORMAT_MAPPING keys.
+        quality:          JPEG/WEBP encoder quality 1-100. Default 90 (visually lossless,
+                          ~half the size of quality=100).
+        max_dim:          if set, longest side of any rendered raster is downsized to
+                          ≤ max_dim px (proportional). Lossless: doesn't enlarge.
 
     Returns the number of files actually written (PDFs may produce many).
     """
@@ -36,13 +52,15 @@ def convert_file(file_path: Path, output_folder: Path, selected_format: str) -> 
     output_folder.mkdir(parents=True, exist_ok=True)
 
     if ext_in in PDF_EXTS:
-        return convert_pdf_file(file_path, output_folder, output_format, ext_out)
+        return convert_pdf_file(
+            file_path, output_folder, output_format, ext_out,
+            quality=quality, max_dim=max_dim,
+        )
 
     if ext_in in SVG_INPUT_EXTS:
-        # SVG is rendered by PyMuPDF as a single-"page" doc; reuse the PDF
-        # converter but suppress the _page1 suffix for the typical 1-page case.
         return convert_pdf_file(
-            file_path, output_folder, output_format, ext_out, single_page_naming=True,
+            file_path, output_folder, output_format, ext_out,
+            single_page_naming=True, quality=quality, max_dim=max_dim,
         )
 
     if ext_in in DOC_EXTS:
@@ -57,6 +75,9 @@ def convert_file(file_path: Path, output_folder: Path, selected_format: str) -> 
             raise UnsupportedConversion(
                 f"Cannot convert image {file_path.name} to document format {output_format}."
             )
-        return convert_image_file(file_path, output_folder, output_format, ext_out)
+        return convert_image_file(
+            file_path, output_folder, output_format, ext_out,
+            quality=quality, max_dim=max_dim,
+        )
 
     raise UnsupportedConversion(f"Unsupported input extension: {ext_in}")
