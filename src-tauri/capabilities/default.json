@@ -5,6 +5,9 @@
   "windows": ["main", "compact"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-show",
+    "core:window:allow-hide",
     "dialog:default",
     "updater:default",
     "shell:default",

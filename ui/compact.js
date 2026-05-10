@@ -1,72 +1,99 @@
-// Capsule (compact mode) window logic.
+// Picvert capsule (compact mode) — drag + click handling.
 //
-// Click → expand into the main window.
-// Drag (anywhere outside the button) → moves the window.
-// Drag a file onto the capsule → also expands.
+// We don't use `data-tauri-drag-region` because mixing it with click
+// detection in the WKWebView turned out flaky on macOS. Instead the JS
+// listens for mousedown and explicitly calls window.startDragging() once
+// the cursor moves > 4 px. If the cursor doesn't move (≤ 4 px before
+// mouseup), it's a click → invoke show_main_window.
 
 if (!window.__TAURI__) {
-  document.body.innerHTML = "<p style='padding:1rem'>__TAURI__ missing</p>";
+  document.body.innerHTML = "<p style='padding:1rem;color:#b00'>__TAURI__ missing</p>";
   throw new Error("no __TAURI__");
 }
 
 const { invoke } = window.__TAURI__.core;
-const webviewWindow = window.__TAURI__.webviewWindow;
-const listen = window.__TAURI__.event ? window.__TAURI__.event.listen : null;
+
+/** Resolve the current webview window across the names Tauri 2 might expose. */
+function currentWebviewWindow() {
+  const ns = window.__TAURI__;
+  if (ns.webviewWindow) {
+    if (typeof ns.webviewWindow.getCurrentWebviewWindow === "function")
+      return ns.webviewWindow.getCurrentWebviewWindow();
+    if (typeof ns.webviewWindow.getCurrent === "function")
+      return ns.webviewWindow.getCurrent();
+  }
+  if (ns.window) {
+    if (typeof ns.window.getCurrentWindow === "function")
+      return ns.window.getCurrentWindow();
+    if (typeof ns.window.getCurrent === "function") return ns.window.getCurrent();
+  }
+  console.warn("[picvert] could not resolve current window — drag will not work");
+  return null;
+}
+const appWindow = currentWebviewWindow();
 
 const capsule = document.getElementById("capsule");
 
-// Click vs drag detection — using screen coords (not client) so the capsule
-// button itself can also start a drag without us mistaking the post-drag
-// mouseup for a click. We compare screenX/Y between mousedown and mouseup.
-//
-// NOTE: data-tauri-drag-region was REMOVED from the button so the JS
-// mousedown/mouseup actually fire reliably; we manually call startDragging()
-// after a small movement threshold.
 const DRAG_THRESHOLD = 4;
 let press = null;
 let dragging = false;
-let appWindow = null;
-
-if (webviewWindow && webviewWindow.getCurrentWindow) {
-  appWindow = webviewWindow.getCurrentWindow();
-}
 
 capsule.addEventListener("mousedown", (e) => {
+  // Only the primary button.
+  if (e.button !== 0) return;
   press = { x: e.screenX, y: e.screenY };
   dragging = false;
 });
 
-capsule.addEventListener("mousemove", async (e) => {
+document.addEventListener("mousemove", async (e) => {
   if (!press || dragging) return;
   const dx = Math.abs(e.screenX - press.x);
   const dy = Math.abs(e.screenY - press.y);
   if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
     dragging = true;
-    if (appWindow && appWindow.startDragging) {
+    if (appWindow && typeof appWindow.startDragging === "function") {
       try {
         await appWindow.startDragging();
       } catch (err) {
         console.error("startDragging failed", err);
       }
+    } else {
+      console.warn("[picvert] appWindow.startDragging not available");
     }
   }
 });
 
-capsule.addEventListener("mouseup", () => {
+document.addEventListener("mouseup", () => {
   if (!press) return;
   const wasDrag = dragging;
   press = null;
   dragging = false;
-  if (!wasDrag) invoke("show_main_window");
+  if (!wasDrag) {
+    triggerClickFx();
+    invoke("show_main_window");
+  }
 });
 
-// Reset state if mouse leaves window mid-drag.
-capsule.addEventListener("mouseleave", () => {
-  press = null;
-  dragging = false;
+// Keyboard activation.
+capsule.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    triggerClickFx();
+    invoke("show_main_window");
+  }
 });
 
-// Drag-drop visual feedback.
+/** Brief ripple animation on the capsule when activated. */
+function triggerClickFx() {
+  capsule.classList.remove("is-clicked");
+  // force reflow so the animation restarts even on rapid repeats
+  // eslint-disable-next-line no-unused-expressions
+  void capsule.offsetWidth;
+  capsule.classList.add("is-clicked");
+  setTimeout(() => capsule.classList.remove("is-clicked"), 600);
+}
+
+// HTML5 drag-drop visual feedback.
 document.body.addEventListener("dragover", (e) => {
   e.preventDefault();
   document.body.classList.add("dragover");
@@ -79,16 +106,10 @@ document.body.addEventListener("drop", (e) => {
   document.body.classList.remove("dragover");
 });
 
-// Scope the OS drop event to THIS window so dropping on the capsule does not
-// also trigger the main window's add-files handler (and vice versa).
-if (appWindow && appWindow.listen) {
-  appWindow.listen("tauri://drag-drop", () => {
-    invoke("show_main_window");
-  }).catch(() => {});
-} else if (listen) {
-  // Fallback to global listener.
-  listen("tauri://drag-drop", () => invoke("show_main_window"));
+// OS-level drop event scoped to THIS window.
+if (appWindow && typeof appWindow.listen === "function") {
+  appWindow.listen("tauri://drag-drop", () => invoke("show_main_window")).catch(() => {});
 }
 
-// Suppress dev context menu in production.
+// Suppress dev context menu.
 window.addEventListener("contextmenu", (e) => e.preventDefault());

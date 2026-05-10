@@ -7,53 +7,90 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header>
-      <div class="header-row">
-        <div>
-          <h1 data-i18n="title">Picvert</h1>
-          <p class="subtitle" data-i18n="subtitle">Batch image / PDF / document converter</p>
-        </div>
+    <!-- Decorative atmospheric blobs (CSS-only, GPU-cheap, behind everything). -->
+    <div class="aurora" aria-hidden="true">
+      <span class="blob b1"></span>
+      <span class="blob b2"></span>
+    </div>
+
+    <header class="hdr">
+      <div class="hdr-brand">
+        <h1 class="brand-title" data-i18n="title">Picvert</h1>
+        <p class="brand-sub" data-i18n="subtitle">
+          Batch image / PDF / document converter
+        </p>
+      </div>
+      <div class="hdr-actions">
+        <button id="help-btn" class="icon-btn" aria-label="Help" title="Help">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M9.4 9.5a2.6 2.6 0 0 1 5.2 0c0 1.5-2.6 1.7-2.6 3.5"></path>
+            <circle cx="12" cy="17" r="0.5" fill="currentColor"></circle>
+          </svg>
+        </button>
         <div class="lang-picker">
-          <label data-i18n="label_lang" for="lang-select">Language</label>
-          <select id="lang-select"></select>
+          <select id="lang-select" aria-label="Language"></select>
         </div>
       </div>
     </header>
 
-    <main>
+    <main class="main">
+      <!-- Hero dropzone -->
       <section id="dropzone" class="dropzone">
-        <p class="dropzone-prompt" data-i18n="drop_prompt">Drop files here or click to select</p>
+        <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v12"></path>
+          <path d="M7 8l5-5 5 5"></path>
+          <path d="M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"></path>
+        </svg>
+        <p class="dz-prompt" data-i18n="drop_prompt">
+          Drop files here or click to select
+        </p>
+        <p class="dz-chips muted" data-i18n="drop_hint_chips">
+          PNG · JPG · PDF · DOCX · XLSX · CSV · HEIC · SVG
+        </p>
         <input id="file-input" type="file" multiple hidden />
       </section>
 
+      <!-- Output bar (folder + actions) -->
       <section class="output-bar">
-        <span class="muted" data-i18n="output_label">Output:</span>
-        <span id="output-folder" class="output-path muted" data-i18n="output_unset"
-          >(not set — pick when you start)</span
-        >
-        <button id="change-output-btn" class="btn-secondary" data-i18n="btn_change_output">
+        <span class="output-label muted" data-i18n="output_label">Output:</span>
+        <span id="output-folder" class="output-path muted" data-i18n="output_unset">
+          (not set — pick when you start)
+        </span>
+        <button id="change-output-btn" class="btn-ghost" data-i18n="btn_change_output">
           Change
         </button>
-        <button
-          id="open-output-btn"
-          class="btn-secondary hidden"
-          data-i18n="btn_open_output"
-        >
-          Open output folder
+        <button id="open-output-btn" class="btn-ghost hidden" data-i18n="btn_open_output">
+          Open
         </button>
       </section>
 
+      <!-- Conversion controls -->
       <section class="controls">
-        <label for="format-select" data-i18n="label_output_format">Output format:</label>
-        <select id="format-select"></select>
-        <button id="convert-btn" data-i18n="btn_convert">Start Conversion</button>
-        <button id="clear-btn" data-i18n="btn_clear">Clear</button>
+        <label class="ctrl-group">
+          <span class="ctrl-label muted" data-i18n="label_output_format">Output format</span>
+          <select id="format-select"></select>
+        </label>
+        <button id="convert-btn" class="btn-primary" data-i18n="btn_convert">
+          Start Conversion
+        </button>
+        <button id="clear-btn" class="btn-ghost" data-i18n="btn_clear">Clear</button>
       </section>
 
-      <section id="file-list" class="file-list">
-        <p class="empty" data-i18n="list_empty">No files yet.</p>
+      <!-- File list -->
+      <section class="list-section">
+        <div class="list-head">
+          <span class="list-title" data-i18n="list_title">Files</span>
+          <span id="list-count" class="list-count muted">0</span>
+        </div>
+        <div id="file-list" class="file-list">
+          <p class="empty" data-i18n="list_empty">No files yet.</p>
+        </div>
       </section>
 
+      <!-- Progress -->
       <section id="progress" class="progress hidden">
         <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
         <p id="progress-text">0 / 0</p>
@@ -61,34 +98,61 @@
       </section>
     </main>
 
-    <footer>
-      <span id="version">v—</span>
-      <span id="engine-status">Engine: …</span>
+    <footer class="ftr">
+      <span id="version" class="version">v—</span>
+      <span id="engine-status" class="engine-status">Engine: …</span>
     </footer>
 
-    <!-- About / Check Updates dialog (shown by tray menu actions) -->
+    <!-- ─────────────────────── About / Updates dialog ─────────────────────── -->
     <dialog id="about-dialog" class="dialog">
       <h2 data-i18n="about_title">About Picvert</h2>
       <p>
-        <strong>Picvert</strong>
-        <span id="about-version">v—</span>
+        <strong>Picvert</strong> <span id="about-version">v—</span>
       </p>
       <p data-i18n="about_blurb">
         Cross-platform batch converter for images, PDFs, and Office documents.
       </p>
       <p>
-        <span data-i18n="about_author_label">Author</span>: Julio (Akxan)<br />
+        <span data-i18n="about_author_label">Author</span>: Julio (Akxan) ·
         <span data-i18n="about_license_label">License</span>: Apache-2.0
       </p>
       <p>
-        <a href="https://github.com/Akxan/picvert" target="_blank" rel="noopener"
-          >github.com/Akxan/picvert</a
-        >
+        <a href="https://github.com/Akxan/picvert" target="_blank" rel="noopener">
+          github.com/Akxan/picvert
+        </a>
       </p>
       <p id="update-status" class="muted"></p>
       <div class="dialog-actions">
-        <button id="check-updates-btn" data-i18n="btn_check_updates">Check for updates</button>
-        <button id="about-close-btn" data-i18n="btn_close">Close</button>
+        <button id="check-updates-btn" class="btn-primary" data-i18n="btn_check_updates">
+          Check for updates
+        </button>
+        <button id="about-close-btn" class="btn-ghost" data-i18n="btn_close">Close</button>
+      </div>
+    </dialog>
+
+    <!-- ─────────────────────── Help dialog ─────────────────────── -->
+    <dialog id="help-dialog" class="dialog dialog-wide">
+      <h2 data-i18n="help_title">Picvert · Help</h2>
+      <p data-i18n="help_intro" class="help-intro"></p>
+
+      <h3 data-i18n="help_inputs_h">Supported inputs</h3>
+      <div class="chip-row" id="help-inputs"></div>
+
+      <h3 data-i18n="help_outputs_h">Output formats</h3>
+      <div class="chip-row" id="help-outputs"></div>
+
+      <h3 data-i18n="help_doc_matrix_h">Document conversion</h3>
+      <p data-i18n="help_doc_matrix" class="muted"></p>
+
+      <h3 data-i18n="help_tips_h">Tips</h3>
+      <ul class="tips">
+        <li data-i18n="help_tip_1"></li>
+        <li data-i18n="help_tip_2"></li>
+        <li data-i18n="help_tip_3"></li>
+      </ul>
+
+      <div class="dialog-actions">
+        <button id="help-close-btn" class="btn-primary" data-i18n="help_close">Got it</button>
       </div>
     </dialog>
 

@@ -1,79 +1,268 @@
-/* Picvert compact / capsule mode — a draggable always-on-top button.
-   The window itself is transparent + frameless; we render a circle with a
-   subtle drop shadow + glassy fill. */
+/* ─────────────────────────────────────────────────────────────────────────
+   Picvert capsule — refined liquid glass.
+   Window is 112×112, transparent, no native shadow. The disc lives in
+   the centre with 8px breathing room for the soft CSS shadow.
+   Layered structure of the capsule:
+     #capsule (the disc + base gradient + outer shadow)
+       .halo   — outer chromatic glow ring (lifts on hover)
+       .glass  — top-left specular highlight (the "wet" reflection)
+       svg     — the icon itself
+       .glint  — slow diagonal sweep, "sun on glass"
+       .ripple — click feedback
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --c-blue: #6b91a8;
+  --c-violet: #8d83a8;
+  --c-rose: #c4a6a0;
+  --c-gold: #c9a87c;
+  --c-shadow: rgba(54, 78, 99, 0.4);
+}
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
   width: 100%;
   height: 100%;
-  background: transparent;
+  background: transparent !important;
   overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+               sans-serif;
 }
+
+/* ─────────────────────────────── disc ─────────────────────────────── */
 
 #capsule {
+  position: absolute;
+  top: 32px;
+  left: 32px;
   width: 80px;
   height: 80px;
-  margin: 8px;                      /* leaves 8px breathing room for the shadow */
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background: linear-gradient(135deg, #7a9cad 0%, #9d95ab 100%);
-  color: white;
-  font-size: 36px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  cursor: grab;                     /* hint that this is draggable */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  overflow: hidden;
+  isolation: isolate;            /* contain blend modes / mix ops */
+
+  /* Layered base: a deep gradient + a top-light radial = liquid feel. */
+  background:
+    radial-gradient(120% 110% at 30% 20%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 45%),
+    radial-gradient(120% 100% at 70% 100%, rgba(196,166,160,0.55) 0%, rgba(196,166,160,0) 60%),
+    linear-gradient(155deg, #7a9cad 0%, #8a82a4 55%, #9f8a99 100%);
+
+  /* Hairline glass border + top inset highlight. */
+  border: 1px solid rgba(255, 255, 255, 0.28);
   box-shadow:
-    0 6px 20px rgba(122, 156, 173, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: transform 200ms ease, box-shadow 200ms ease;
-  animation: capsule-pulse 3s ease-in-out infinite;
+    0 14px 28px var(--c-shadow),
+    0 4px 10px rgba(54, 78, 99, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -8px 18px rgba(0, 0, 0, 0.06);
+
+  color: rgba(255, 255, 255, 0.95);
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1.05),
+    box-shadow 320ms ease,
+    background 360ms ease,
+    border-color 320ms ease;
+  animation: breathe 5.2s ease-in-out infinite;
 }
 
-#capsule:hover {
-  transform: scale(1.06);
-  box-shadow:
-    0 8px 28px rgba(122, 156, 173, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+/* ─────────────────────────────── glass highlight (top-left) ─────────────────────────────── */
+
+.glass {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  width: 56%;
+  height: 40%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.12) 60%,
+    transparent 100%
+  );
+  pointer-events: none;
+  filter: blur(0.5px);
+  transition: opacity 320ms ease, transform 320ms ease;
 }
 
-#capsule:active {
-  cursor: grabbing;
-  transform: scale(0.96);
+/* ─────────────────────────────── outer halo ring ─────────────────────────────── */
+
+.halo {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from 200deg,
+    rgba(122, 156, 173, 0.55),
+    rgba(157, 149, 171, 0.55),
+    rgba(196, 166, 160, 0.55),
+    rgba(122, 156, 173, 0.55)
+  );
+  filter: blur(8px);
+  opacity: 0;
+  transition: opacity 360ms ease, transform 360ms ease;
+  z-index: -1;
 }
 
-/* Subtle breathing animation so it feels "alive" not just a sticker. */
-@keyframes capsule-pulse {
+/* ─────────────────────────────── icon ─────────────────────────────── */
+
+.capsule-icon {
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+  transition:
+    transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1.1),
+    opacity 240ms ease;
+  opacity: 0.96;
+  z-index: 1;
+}
+
+/* ─────────────────────────────── slow glint sweep ─────────────────────────────── */
+
+.glint {
+  position: absolute;
+  top: -100%;
+  left: -100%;
+  width: 220%;
+  height: 220%;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.32) 50%,
+    transparent 58%
+  );
+  transform: translate(-100%, -100%) rotate(0deg);
+  animation: glint 9s ease-in-out infinite;
+  animation-delay: 2s;
+  mix-blend-mode: screen;
+}
+
+@keyframes glint {
+  0%, 70% {
+    transform: translate(-60%, -60%);
+    opacity: 0;
+  }
+  78% { opacity: 1; }
+  90% {
+    transform: translate(60%, 60%);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(60%, 60%);
+    opacity: 0;
+  }
+}
+
+/* ─────────────────────────────── breathing ─────────────────────────────── */
+
+@keyframes breathe {
   0%, 100% {
     box-shadow:
-      0 6px 20px rgba(122, 156, 173, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      0 14px 28px var(--c-shadow),
+      0 4px 10px rgba(54, 78, 99, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -8px 18px rgba(0, 0, 0, 0.06);
   }
   50% {
     box-shadow:
-      0 6px 24px rgba(122, 156, 173, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      0 18px 36px rgba(54, 78, 99, 0.55),
+      0 4px 10px rgba(54, 78, 99, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      inset 0 -8px 18px rgba(0, 0, 0, 0.05);
   }
 }
 
-/* Honour user's "reduce motion" setting (accessibility + battery). */
-@media (prefers-reduced-motion: reduce) {
-  #capsule {
-    animation: none;
-    transition: none;
-  }
-}
+/* ─────────────────────────────── hover ─────────────────────────────── */
 
-/* When a file is dragged over, swell + recolour to invite the drop. */
-body.dragover #capsule {
-  background: linear-gradient(135deg, #c9a87c 0%, #c4a6a0 100%);
-  transform: scale(1.15);
+#capsule:hover {
+  animation: none; /* don't fight the user */
+  transform: translateY(-1.5px) scale(1.05);
+  border-color: rgba(255, 255, 255, 0.4);
+  background:
+    radial-gradient(120% 110% at 30% 20%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 45%),
+    radial-gradient(120% 100% at 70% 100%, rgba(201,168,124,0.55) 0%, rgba(201,168,124,0) 60%),
+    linear-gradient(155deg, #82a3b3 0%, #968cae 55%, #b09299 100%);
   box-shadow:
-    0 10px 32px rgba(201, 168, 124, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    0 22px 40px rgba(54, 78, 99, 0.5),
+    0 6px 14px rgba(201, 168, 124, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -8px 18px rgba(0, 0, 0, 0.04);
+}
+#capsule:hover .glass { opacity: 1.1; transform: translate(2px, 2px); }
+#capsule:hover .halo { opacity: 1; transform: scale(1.08); }
+#capsule:hover .capsule-icon {
+  transform: rotate(-4deg) scale(1.05);
+  opacity: 1;
+}
+
+/* ─────────────────────────────── active / mousedown ─────────────────────────────── */
+
+#capsule:active {
+  cursor: grabbing;
+  transform: scale(0.965);
+  transition: transform 110ms ease;
+}
+
+#capsule:focus-visible {
+  outline: 2px solid var(--c-gold);
+  outline-offset: 4px;
+}
+
+/* ─────────────────────────────── click ripple ─────────────────────────────── */
+
+.ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0));
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+}
+#capsule.is-clicked .ripple {
+  animation: capsule-ripple 540ms cubic-bezier(0.1, 0.6, 0.2, 1);
+}
+@keyframes capsule-ripple {
+  0%   { width: 0;    height: 0;    opacity: 0.7; }
+  100% { width: 220%; height: 220%; opacity: 0;   }
+}
+
+/* ─────────────────────────────── drag-over: gold "ready to receive" ─────────────────────────────── */
+
+body.dragover #capsule {
+  background:
+    radial-gradient(120% 110% at 30% 20%, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 45%),
+    radial-gradient(120% 100% at 70% 100%, rgba(201,168,124,0.7) 0%, rgba(201,168,124,0) 60%),
+    linear-gradient(155deg, #c9a87c 0%, #c4a6a0 60%, #b08e8a 100%);
+  transform: scale(1.12);
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 24px 44px rgba(201, 168, 124, 0.55),
+    0 6px 14px rgba(184, 138, 100, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+body.dragover #capsule .capsule-icon {
+  transform: scale(1.18);
+}
+
+/* ─────────────────────────────── reduced-motion ─────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  #capsule, .capsule-icon, .glass, .halo, .glint, .ripple {
+    animation: none !important;
+    transition: none !important;
+  }
 }

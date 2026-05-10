@@ -1,73 +1,119 @@
-// Picvert v2 frontend.
-// Talks to Tauri Rust commands; engine work goes through the picvert-engine
-// sidecar via JSON-RPC (handled in src-tauri/src/lib.rs).
+// Picvert v2 frontend — vanilla JS shell, no bundler.
+//
+// Talks to Tauri's Rust core via window.__TAURI__.core.invoke() (made
+// available by withGlobalTauri: true). All conversion work goes through
+// the picvert-engine sidecar over JSON-RPC, dispatched by Rust.
 
 import { SUPPORTED_LANGS, getLang, setLang, onLangChange, t, translations } from "./i18n.js";
+
+// ─── early sanity check ──────────────────────────────────────────────────
 
 if (!window.__TAURI__) {
   document.addEventListener("DOMContentLoaded", () => {
     document.body.innerHTML =
-      '<div style="padding:2rem;font-family:system-ui;color:#b00">' +
+      '<div style="padding:2rem;font-family:system-ui;color:#b56b6b">' +
       "<h2>Picvert init failed</h2>" +
-      "<p>window.__TAURI__ is not defined.</p>" +
+      "<p><code>window.__TAURI__</code> is not injected. Open Tauri shell, not the raw HTML.</p>" +
       "</div>";
   });
   throw new Error("__TAURI__ not injected");
 }
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
-const webviewWindow = window.__TAURI__.webviewWindow;
-const appWindow =
-  webviewWindow && webviewWindow.getCurrentWindow ? webviewWindow.getCurrentWindow() : null;
 
-// ─────────────────────────────────────────────────── DOM refs
+/** Resolve the current webview window across the names Tauri 2 might expose. */
+function resolveAppWindow() {
+  const ns = window.__TAURI__;
+  const candidates = [
+    ns.webviewWindow?.getCurrentWebviewWindow,
+    ns.webviewWindow?.getCurrent,
+    ns.window?.getCurrentWindow,
+    ns.window?.getCurrent,
+  ];
+  for (const fn of candidates) {
+    if (typeof fn === "function") {
+      try { return fn(); } catch {}
+    }
+  }
+  return null;
+}
+const appWindow = resolveAppWindow();
 
-const dropzone = document.getElementById("dropzone");
-const fileInput = document.getElementById("file-input");
-const formatSelect = document.getElementById("format-select");
-const convertBtn = document.getElementById("convert-btn");
-const clearBtn = document.getElementById("clear-btn");
-const fileListEl = document.getElementById("file-list");
-const progressEl = document.getElementById("progress");
-const barFill = document.getElementById("bar-fill");
-const progressText = document.getElementById("progress-text");
-const progressSummary = document.getElementById("progress-summary");
-const versionEl = document.getElementById("version");
-const engineStatusEl = document.getElementById("engine-status");
-const langSelect = document.getElementById("lang-select");
-const outputFolderEl = document.getElementById("output-folder");
-const changeOutputBtn = document.getElementById("change-output-btn");
-const openOutputBtn = document.getElementById("open-output-btn");
+// ─── DOM refs ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────── state
+const $ = (id) => document.getElementById(id);
+const dropzone = $("dropzone");
+const fileInput = $("file-input");
+const formatSelect = $("format-select");
+const convertBtn = $("convert-btn");
+const clearBtn = $("clear-btn");
+const fileListEl = $("file-list");
+const listCountEl = $("list-count");
+const progressEl = $("progress");
+const barFill = $("bar-fill");
+const progressText = $("progress-text");
+const progressSummary = $("progress-summary");
+const versionEl = $("version");
+const engineStatusEl = $("engine-status");
+const langSelect = $("lang-select");
+const outputFolderEl = $("output-folder");
+const changeOutputBtn = $("change-output-btn");
+const openOutputBtn = $("open-output-btn");
+const helpBtn = $("help-btn");
+
+const aboutDialog = $("about-dialog");
+const aboutVersionEl = $("about-version");
+const updateStatusEl = $("update-status");
+const helpDialog = $("help-dialog");
+const helpInputsEl = $("help-inputs");
+const helpOutputsEl = $("help-outputs");
+
+// ─── state ────────────────────────────────────────────────────────────────
 
 const LS_OUTPUT = "picvert.outputFolder";
+const IMAGE_EXT = /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic)$/i;
 
 let files = [];
 let outputFolder = null;
-let engineReadyMessage = null;
-let busy = false; // suppresses ✕ remove buttons while a batch is running
-const isImageExt = (name) =>
-  /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic)$/i.test(name);
+let busy = false;
 
-// ─────────────────────────────────────────────────── helpers
+// engineState is a tagged union so applyTranslations() can reproduce the
+// localised footer text after a language change.
+let engineState = { kind: "loading" };
 
-function errMessage(err) {
-  if (err && typeof err === "object") {
-    return err.message || err.kind || JSON.stringify(err);
-  }
-  return String(err);
+let supportedFormats = { input_extensions: [], output_formats: [] };
+
+// ─── small helpers ────────────────────────────────────────────────────────
+
+const errMessage = (err) =>
+  err && typeof err === "object" ? (err.message || err.kind || JSON.stringify(err)) : String(err);
+
+const fileBadge = (name) => {
+  const ext = name.split(".").pop().toLowerCase();
+  return { pdf: "PDF", docx: "DOC", xlsx: "XLS", csv: "CSV", svg: "SVG" }[ext] || ext.toUpperCase();
+};
+
+function langName(lang) {
+  return { en: "english", es: "spanish", ru: "russian", zh: "chinese" }[lang] || "english";
 }
 
-function setEngineStatus(state, message) {
+// ─── engine status footer ─────────────────────────────────────────────────
+
+function renderEngineStatus() {
   engineStatusEl.innerHTML = "";
-  if (state === "loading") {
+  if (engineState.kind === "loading") {
     const sp = document.createElement("span");
     sp.className = "spinner";
     engineStatusEl.appendChild(sp);
+    engineStatusEl.appendChild(document.createTextNode(t("engine_loading")));
+  } else if (engineState.kind === "ready") {
+    engineStatusEl.appendChild(document.createTextNode(t("engine_ready")));
+  } else {
+    engineStatusEl.appendChild(document.createTextNode(t("engine_error", { err: engineState.err })));
   }
-  engineStatusEl.appendChild(document.createTextNode(message));
 }
+
+// ─── output folder ────────────────────────────────────────────────────────
 
 function setOutputFolder(path) {
   outputFolder = path;
@@ -92,7 +138,7 @@ function loadSavedOutputFolder() {
   } catch {}
 }
 
-// ─────────────────────────────────────────────────── i18n bootstrap
+// ─── i18n bootstrap ───────────────────────────────────────────────────────
 
 function applyTranslations() {
   document.documentElement.setAttribute("lang", getLang());
@@ -100,15 +146,18 @@ function applyTranslations() {
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
-  if (engineReadyMessage) {
-    const state = document.body.classList.contains("engine-loading")
-      ? "loading"
-      : document.body.classList.contains("engine-ready")
-        ? "ready"
-        : "error";
-    setEngineStatus(state, engineReadyMessage(t));
-  }
+  renderEngineStatus();
   render();
+  // Push label updates to the tray menu.
+  invoke("set_tray_labels", {
+    labels: {
+      show: t("tray_show"),
+      compact: t("tray_compact"),
+      about: t("tray_about"),
+      checkUpdates: t("tray_check_updates"),
+      quit: t("tray_quit"),
+    },
+  }).catch((e) => console.warn("set_tray_labels failed", e));
 }
 
 function buildLangPicker() {
@@ -123,57 +172,51 @@ function buildLangPicker() {
   langSelect.addEventListener("change", () => setLang(langSelect.value));
 }
 
-function langName(lang) {
-  return { en: "english", es: "spanish", ru: "russian", zh: "chinese" }[lang] || "english";
-}
-
 onLangChange(applyTranslations);
 
-// ─────────────────────────────────────────────────── engine init
+// ─── engine init ──────────────────────────────────────────────────────────
 
 async function init() {
   buildLangPicker();
   document.body.classList.add("engine-loading");
-  engineReadyMessage = (tt) => tt("engine_loading");
   convertBtn.disabled = true;
   loadSavedOutputFolder();
   if (!outputFolder) setOutputFolder(null);
   applyTranslations();
-  setEngineStatus("loading", t("engine_loading"));
 
   try {
     const ping = await invoke("engine_ping");
     versionEl.textContent = `v${ping.version}`;
-    engineReadyMessage = (tt) => tt("engine_ready");
-    setEngineStatus("ready", engineReadyMessage(t));
+    engineState = { kind: "ready" };
+    renderEngineStatus();
     document.body.classList.remove("engine-loading");
     document.body.classList.add("engine-ready");
     convertBtn.disabled = false;
   } catch (err) {
-    engineReadyMessage = (tt) => tt("engine_error", { err: errMessage(err) });
-    setEngineStatus("error", engineReadyMessage(t));
+    engineState = { kind: "error", err: errMessage(err) };
+    renderEngineStatus();
   }
 
   try {
-    const fmts = await invoke("engine_list_formats");
+    supportedFormats = await invoke("engine_list_formats");
     formatSelect.innerHTML = "";
-    for (const f of fmts.output_formats) {
+    for (const f of supportedFormats.output_formats) {
       const opt = document.createElement("option");
       opt.value = f;
       opt.textContent = f;
       formatSelect.appendChild(opt);
     }
+    populateHelpChips();
   } catch (err) {
     console.error("list_formats failed", err);
   }
 }
 
-// ─────────────────────────────────────────────────── file pickers
+// ─── file pickers / drop ──────────────────────────────────────────────────
 
 fileInput.addEventListener("change", () => {
-  const added = [];
-  for (const f of fileInput.files) added.push({ path: f.path || f.name, name: f.name });
-  addFiles(added);
+  const items = [...fileInput.files].map((f) => ({ path: f.path || f.name, name: f.name }));
+  addFiles(items);
 });
 
 dropzone.addEventListener("click", () => fileInput.click());
@@ -187,22 +230,14 @@ dropzone.addEventListener("drop", (e) => {
   dropzone.classList.remove("dragover");
 });
 
-// OS-level drag events scoped to THIS window so the capsule window doesn't
-// also receive them (review issue #5).
-if (appWindow && appWindow.listen) {
-  appWindow
-    .listen("tauri://drag-drop", (event) => {
-      dropzone.classList.remove("dragover");
-      const paths = event.payload?.paths || [];
-      addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
-    })
-    .catch(() => {});
-  appWindow
-    .listen("tauri://drag-enter", () => dropzone.classList.add("dragover"))
-    .catch(() => {});
-  appWindow
-    .listen("tauri://drag-leave", () => dropzone.classList.remove("dragover"))
-    .catch(() => {});
+if (appWindow?.listen) {
+  appWindow.listen("tauri://drag-drop", (event) => {
+    dropzone.classList.remove("dragover");
+    const paths = event.payload?.paths || [];
+    addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
+  }).catch(() => {});
+  appWindow.listen("tauri://drag-enter", () => dropzone.classList.add("dragover")).catch(() => {});
+  appWindow.listen("tauri://drag-leave", () => dropzone.classList.remove("dragover")).catch(() => {});
 }
 
 function addFiles(items) {
@@ -217,12 +252,12 @@ function addFiles(items) {
   if (added > 0) render();
 }
 
-function removeFile(idx) {
+const removeFile = (idx) => {
   files.splice(idx, 1);
   render();
-}
+};
 
-// ─────────────────────────────────────────────────── output folder
+// ─── output folder UI ─────────────────────────────────────────────────────
 
 changeOutputBtn.addEventListener("click", async () => {
   const folder = await invoke("pick_output_folder");
@@ -231,14 +266,11 @@ changeOutputBtn.addEventListener("click", async () => {
 
 openOutputBtn.addEventListener("click", async () => {
   if (!outputFolder) return;
-  try {
-    await invoke("open_path", { path: outputFolder });
-  } catch (err) {
-    console.error("open_path failed", err);
-  }
+  try { await invoke("open_path", { path: outputFolder }); }
+  catch (err) { console.error("open_path failed", err); }
 });
 
-// ─────────────────────────────────────────────────── conversion
+// ─── conversion loop ──────────────────────────────────────────────────────
 
 convertBtn.addEventListener("click", async () => {
   if (files.length === 0) {
@@ -255,29 +287,23 @@ convertBtn.addEventListener("click", async () => {
   progressEl.classList.remove("hidden");
   progressSummary.classList.add("hidden");
   barFill.style.width = "0%";
-  let done = 0;
-  let okCount = 0;
-  let errCount = 0;
-
+  let done = 0, ok = 0, err = 0;
   const fmt = formatSelect.value;
+
   for (const f of files) {
     f.statusKey = "running";
     render();
     try {
-      const r = await invoke("convert_one", {
-        input: f.path,
-        outDir: outputFolder,
-        format: fmt,
-      });
+      const r = await invoke("convert_one", { input: f.path, outDir: outputFolder, format: fmt });
       f.statusKey = "ok";
       f.statusParams = { n: r.written };
       f.statusClass = "ok";
-      okCount++;
-    } catch (err) {
+      ok++;
+    } catch (e) {
       f.statusKey = "err";
-      f.statusParams = { err: errMessage(err) };
+      f.statusParams = { err: errMessage(e) };
       f.statusClass = "err";
-      errCount++;
+      err++;
     }
     done++;
     barFill.style.width = `${(done / files.length) * 100}%`;
@@ -285,7 +311,7 @@ convertBtn.addEventListener("click", async () => {
     render();
   }
 
-  progressSummary.textContent = t("summary_done", { ok: okCount, err: errCount });
+  progressSummary.textContent = t("summary_done", { ok, err });
   progressSummary.classList.remove("hidden");
   setUiBusy(false);
 });
@@ -303,17 +329,13 @@ function setUiBusy(b) {
   formatSelect.disabled = b;
   langSelect.disabled = b;
   changeOutputBtn.disabled = b;
-  document.body.classList.toggle("busy", b);
 }
 
-// ─────────────────────────────────────────────────── render
-
-function fileBadge(name) {
-  const ext = name.split(".").pop().toLowerCase();
-  return { pdf: "PDF", docx: "DOC", xlsx: "XLS", csv: "CSV", svg: "SVG" }[ext] || ext.toUpperCase();
-}
+// ─── render file list ─────────────────────────────────────────────────────
 
 function render() {
+  listCountEl.textContent = String(files.length);
+
   if (files.length === 0) {
     fileListEl.innerHTML = "";
     const p = document.createElement("p");
@@ -322,15 +344,15 @@ function render() {
     fileListEl.appendChild(p);
     return;
   }
-  fileListEl.innerHTML = "";
-  files.forEach((f, idx) => {
+
+  const frag = document.createDocumentFragment();
+  files.forEach((f) => {
     const row = document.createElement("div");
     row.className = "file-row";
 
-    // Thumbnail (image preview via tauri's asset protocol; otherwise type badge).
     const thumb = document.createElement("div");
     thumb.className = "thumb";
-    if (isImageExt(f.name) && convertFileSrc) {
+    if (IMAGE_EXT.test(f.name) && convertFileSrc) {
       const img = document.createElement("img");
       img.src = convertFileSrc(f.path);
       img.alt = "";
@@ -367,32 +389,23 @@ function render() {
     removeBtn.title = t("btn_remove_file");
     removeBtn.setAttribute("aria-label", t("btn_remove_file"));
     removeBtn.textContent = "✕";
-    // Don't let users splice the queue while a batch is in flight.
     if (busy) removeBtn.disabled = true;
     removeBtn.addEventListener("click", () => {
       if (busy) return;
-      // Locate by identity, not stale closure index — survives reorderings.
       const i = files.indexOf(f);
       if (i >= 0) removeFile(i);
     });
     row.appendChild(removeBtn);
 
-    fileListEl.appendChild(row);
+    frag.appendChild(row);
   });
+  fileListEl.replaceChildren(frag);
 }
 
-// ─────────────────────────────────────────────────── misc
+// ─── About / Update dialog ────────────────────────────────────────────────
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-
-// About / updates dialog (also triggered by the tray menu).
-const aboutDialog = document.getElementById("about-dialog");
-const aboutVersionEl = document.getElementById("about-version");
-const updateStatusEl = document.getElementById("update-status");
-const checkUpdatesBtn = document.getElementById("check-updates-btn");
-document
-  .getElementById("about-close-btn")
-  .addEventListener("click", () => aboutDialog.close());
+$("about-close-btn").addEventListener("click", () => aboutDialog.close());
+$("check-updates-btn").addEventListener("click", checkForUpdates);
 
 function openAbout() {
   aboutVersionEl.textContent = versionEl.textContent;
@@ -403,24 +416,49 @@ function openAbout() {
 async function checkForUpdates() {
   updateStatusEl.textContent = t("update_checking");
   try {
-    // tauri-plugin-updater is NOT exposed by withGlobalTauri. We go through
-    // a Rust command (`check_for_updates`) that calls app.updater().check().
     const r = await invoke("check_for_updates");
-    if (r.available) {
-      updateStatusEl.textContent = t("update_available", { ver: r.version });
-    } else {
-      updateStatusEl.textContent = t("update_uptodate");
-    }
+    updateStatusEl.textContent = r.available
+      ? t("update_available", { ver: r.version })
+      : t("update_uptodate");
   } catch (err) {
     updateStatusEl.textContent = t("update_failed", { err: errMessage(err) });
   }
 }
 
-checkUpdatesBtn.addEventListener("click", checkForUpdates);
+// ─── Help dialog ──────────────────────────────────────────────────────────
+
+helpBtn.addEventListener("click", openHelp);
+$("help-close-btn").addEventListener("click", () => helpDialog.close());
+
+function openHelp() {
+  populateHelpChips();
+  if (!helpDialog.open) helpDialog.showModal();
+}
+
+function populateHelpChips() {
+  const chips = (parent, items) => {
+    parent.innerHTML = "";
+    for (const it of items) {
+      const c = document.createElement("span");
+      c.className = "chip";
+      c.textContent = it;
+      parent.appendChild(c);
+    }
+  };
+  chips(helpInputsEl, supportedFormats.input_extensions || []);
+  chips(helpOutputsEl, supportedFormats.output_formats || []);
+}
+
+// ─── tray-driven events from Rust ─────────────────────────────────────────
+
 window.addEventListener("picvert:show-about", openAbout);
 window.addEventListener("picvert:check-updates", () => {
   openAbout();
   checkForUpdates();
 });
+window.addEventListener("picvert:show-help", openHelp);
+
+// Suppress dev context menu in production.
+window.addEventListener("contextmenu", (e) => e.preventDefault());
 
 init();

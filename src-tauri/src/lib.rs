@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -277,6 +277,13 @@ async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResult, String> 
     }
 }
 
+/// Called by the frontend whenever the user changes the UI language so the
+/// tray menu stays in sync.
+#[tauri::command]
+fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<(), String> {
+    build_tray_with_labels(&app, &labels).map_err(|e| format!("rebuild tray: {e:#}"))
+}
+
 /// Open a folder in the OS file manager.
 ///
 /// Hardened against the renderer being able to use this as a generic URL
@@ -303,6 +310,15 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+    } else {
+        // Window was destroyed (e.g. user hit ⌘W before we wired the close
+        // interceptor). Re-create from the same URL the bundle ships with.
+        let _ = WebviewWindowBuilder::new(&app, "main", WebviewUrl::App("index.html".into()))
+            .title("Picvert")
+            .inner_size(720.0, 720.0)
+            .min_inner_size(480.0, 480.0)
+            .resizable(true)
+            .build();
     }
     if let Some(w) = app.get_webview_window("compact") {
         let _ = w.hide();
@@ -320,13 +336,16 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         let _ = w.set_focus();
         return Ok(());
     }
-    // First time: create the compact window.
+    // First time: create the compact window. shadow(false) is essential —
+    // macOS otherwise paints a native window-shadow halo around the
+    // transparent window which looks like a square frame in screenshots.
     let win = WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
         .title("Picvert")
-        .inner_size(96.0, 96.0)
+        .inner_size(144.0, 144.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(true)
@@ -345,14 +364,41 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
 
 // ----------------------------------------------------------------- entry point
 
-fn build_tray(app: &AppHandle) -> Result<()> {
-    let show_item = MenuItem::with_id(app, "show", "Show Picvert", true, None::<&str>)?;
-    let compact_item = MenuItem::with_id(app, "compact", "Compact Mode", true, None::<&str>)?;
-    let about_item = MenuItem::with_id(app, "about", "About Picvert", true, None::<&str>)?;
+/// Strings for the tray menu — JS sends these via `set_tray_labels` whenever
+/// the user changes language in the main panel, so the menu stays in sync.
+/// `serde(default)` + `deny_unknown_fields = false` (default) means extra
+/// fields the frontend may send (legacy `language`, `langEnglish`, etc.)
+/// are silently ignored.
+#[derive(Default, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrayLabels {
+    show: String,
+    compact: String,
+    about: String,
+    check_updates: String,
+    quit: String,
+}
+
+impl TrayLabels {
+    fn english_default() -> Self {
+        Self {
+            show: "Show Picvert".into(),
+            compact: "Compact Mode".into(),
+            about: "About Picvert".into(),
+            check_updates: "Check for Updates…".into(),
+            quit: "Quit".into(),
+        }
+    }
+}
+
+fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
+    let show_item = MenuItem::with_id(app, "show", &labels.show, true, None::<&str>)?;
+    let compact_item = MenuItem::with_id(app, "compact", &labels.compact, true, None::<&str>)?;
+    let about_item = MenuItem::with_id(app, "about", &labels.about, true, None::<&str>)?;
     let updates_item =
-        MenuItem::with_id(app, "check_updates", "Check for Updates…", true, None::<&str>)?;
+        MenuItem::with_id(app, "check_updates", &labels.check_updates, true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = PredefinedMenuItem::quit(app, Some("Quit"))?;
+    let quit_item = PredefinedMenuItem::quit(app, Some(&labels.quit))?;
 
     let menu = Menu::with_items(
         app,
@@ -366,6 +412,14 @@ fn build_tray(app: &AppHandle) -> Result<()> {
             &quit_item,
         ],
     )?;
+
+    // Reuse the existing tray icon if it's already on the menu bar; otherwise
+    // create one. This is what makes language switching feel instant —
+    // updating the menu in place rather than spawning a new icon each time.
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_menu(Some(menu));
+        return Ok(());
+    }
 
     let mut builder = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().unwrap())
@@ -426,10 +480,26 @@ pub fn run() {
             show_compact_window,
             open_path,
             check_for_updates,
+            set_tray_labels,
         ])
+        .on_window_event(|window, event| {
+            // Closing the main window collapses the app into the floating
+            // capsule rather than quitting (we keep the engine alive for a
+            // fast re-expand). Quit goes through the tray menu.
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    let app = window.app_handle();
+                    if let Err(e) = show_compact_window(app.clone()) {
+                        eprintln!("show_compact_window from close: {e}");
+                    }
+                }
+            }
+        })
         .setup(|app| {
             // Tray icon — always present, even when no windows are open.
-            if let Err(e) = build_tray(app.handle()) {
+            if let Err(e) = build_tray_with_labels(app.handle(), &TrayLabels::english_default()) {
                 eprintln!("failed to build tray icon: {e:#}");
             }
 
