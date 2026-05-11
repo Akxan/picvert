@@ -151,9 +151,9 @@ jobs:
               install_name_tool -id "$new_id" "$binary"
             done
           done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
-          # (2) Now strip every ad-hoc signature so the codesign step
-          # below starts from a clean slate (so it can't inherit
-          # PyInstaller's junk "Python-<random>" identifier).
+          # (2) Strip every ad-hoc signature so the codesign step below
+          # starts from a clean slate (can't inherit PyInstaller's junk
+          # "Python-<random>" identifier).
           stripped=0
           while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q "Mach-O"; then
@@ -162,6 +162,37 @@ jobs:
             fi
           done < <(find "$SIDECAR_DIR" -type f -print0)
           echo "Stripped ad-hoc signatures: $stripped Mach-O files"
+          # (3) Deal with the two symlinks pointing at the framework
+          # main binary that notarytool insists on evaluating as
+          # standalone (and which then fail with "binary is invalid"
+          # because Versions/X/Python's signature lives in framework
+          # context, not at the symlink path):
+          #
+          #   - _internal/Python (PyInstaller alias): replace with a
+          #     physical copy. After codesign signs it independently
+          #     notarytool will see a self-contained valid binary.
+          #
+          #   - Python.framework/Python (framework outer symlink):
+          #     just delete. dyld loads via Versions/Current/Python;
+          #     removing the symlink keeps notarytool from scanning
+          #     the path entirely. We cannot replace it with a hard
+          #     copy because codesign then refuses to sign the
+          #     framework outer ("bundle format is ambiguous").
+          FW=$(find "$SIDECAR_DIR" -type d -name "Python.framework" | head -1)
+          if [ -n "$FW" ]; then
+            VER_BIN=$(find "$FW/Versions" -mindepth 2 -maxdepth 2 -type f -name "Python" | head -1)
+            PY_INTERNAL="$SIDECAR_DIR/_internal/Python"
+            if [ -L "$PY_INTERNAL" ]; then
+              echo "De-symlinking $PY_INTERNAL -> hard copy"
+              rm "$PY_INTERNAL"
+              cp "$VER_BIN" "$PY_INTERNAL"
+            fi
+            FW_OUTER="$FW/Python"
+            if [ -L "$FW_OUTER" ]; then
+              echo "Removing framework outer symlink $FW_OUTER"
+              rm "$FW_OUTER"
+            fi
+          fi
 
       - name: Sign Python sidecar binaries
         if: runner.os == 'macOS'
@@ -220,31 +251,7 @@ jobs:
             codesign "${SIGN_ARGS[@]}" "$d"
             fw=$((fw + 1))
           done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
-          # The two symlinks pointing at the framework's main binary
-          # (_internal/Python and Python.framework/Python) keep failing
-          # notarization with "signature of the binary is invalid" even
-          # though the framework signs cleanly. Apple's notarytool walks
-          # symlinks but evaluates each resulting path as a standalone
-          # binary — without framework context, the Versions/X/Python
-          # signature doesn't count for those paths.
-          #
-          # Replace the symlinks with hard copies of the now-signed
-          # framework binary, then independently sign each copy. dyld
-          # uses install_name (LC_ID_DYLIB) for actual loading, not the
-          # path, so having two physical copies is fine.
-          FW=$(find "$SIDECAR_DIR" -type d -name "Python.framework" | head -1)
-          if [ -n "$FW" ]; then
-            VER_BIN=$(find "$FW/Versions" -mindepth 2 -maxdepth 2 -type f -name "Python" | head -1)
-            for victim in "$SIDECAR_DIR/_internal/Python" "$FW/Python"; do
-              if [ -L "$victim" ]; then
-                echo "De-symlinking $victim -> hard copy"
-                rm "$victim"
-                cp "$VER_BIN" "$victim"
-                codesign "${SIGN_ARGS[@]}" "$victim"
-              fi
-            done
-          fi
-          echo "Signed: $loose loose + $ver version dirs + $fw frameworks (+ de-symlinked Python aliases)"
+          echo "Signed: $loose loose + $ver version dirs + $fw frameworks"
           # Local strict verification — must pass before letting Tauri proceed.
           codesign --verify --verbose=2 --strict "$SIDECAR_DIR/picvert-engine" 2>&1
           find "$SIDECAR_DIR" -type d -name "*.framework" -exec \
