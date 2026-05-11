@@ -21,6 +21,20 @@
         "minHeight": 480,
         "resizable": true,
         "fullscreen": false
+      },
+      {
+        "label": "compact",
+        "title": "Picvert",
+        "url": "compact.html",
+        "width": 280,
+        "height": 140,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false
       }
     ],
     "security": {
