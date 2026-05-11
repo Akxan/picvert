@@ -611,18 +611,25 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
     // Capsule is now a horizontal weather widget (time + date + current
     // weather + city). 280×140 gives ~30 px breathing room around the
     // 220×84 card for the soft drop-shadow.
-    let win = WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
+    // Transparent + decoration-less window builders behave very differently
+    // on macOS vs Windows. On macOS we go for the click-through-to-desktop
+    // capsule. On Windows the same combination tends to hang the WebView2
+    // compositor — the window is created but never paints, freezing the
+    // hide_main_show_compact transition. So on Windows we fall back to an
+    // opaque window: capsule still works, just sits in a small frameless box.
+    let mut builder = WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("compact.html".into()))
         .title("Picvert")
         .inner_size(280.0, 140.0)
         .resizable(false)
         .decorations(false)
-        .transparent(true)
-        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .visible(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .visible(true);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.transparent(true).shadow(false);
+    }
+    let win = builder.build().map_err(|e| e.to_string())?;
     // Park near the top-right of the active monitor.
     if let Ok(Some(monitor)) = win.current_monitor() {
         let size = monitor.size();
