@@ -2,7 +2,20 @@
 from __future__ import annotations
 
 APP_NAME = "Picvert"
-APP_VERSION = "1.1.0"
+
+
+def _read_version() -> str:
+    # Read once from pyproject.toml metadata so release bumps only need to
+    # touch one Python file. PyInstaller bundles dist-info by default; the
+    # fallback covers a checkout that hasn't been pip-installed yet.
+    try:
+        from importlib.metadata import version as _v
+        return _v("picvert")
+    except Exception:
+        return "0.0.0+dev"
+
+
+APP_VERSION = _read_version()
 APP_AUTHOR = "Julio"
 
 # Raster image inputs — read by Pillow.
