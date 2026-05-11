@@ -16,7 +16,7 @@ use std::sync::{
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -752,6 +752,61 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // macOS app menu — Tauri 2's auto-generated default has many
+            // items we don't use (File / View / Help with empty contents).
+            // Replace with a minimal Picvert + Edit + Window setup. Edit
+            // is required for ⌘C/⌘V/⌘A to work inside text inputs.
+            #[cfg(target_os = "macos")]
+            {
+                let h = app.handle();
+                let about_md = tauri::menu::AboutMetadata {
+                    name: Some("Picvert".into()),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    ..Default::default()
+                };
+                let app_menu = Submenu::with_items(
+                    h,
+                    "Picvert",
+                    true,
+                    &[
+                        &PredefinedMenuItem::about(h, None, Some(about_md))?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::services(h, None)?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::hide(h, None)?,
+                        &PredefinedMenuItem::hide_others(h, None)?,
+                        &PredefinedMenuItem::show_all(h, None)?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::quit(h, None)?,
+                    ],
+                )?;
+                let edit_menu = Submenu::with_items(
+                    h,
+                    "Edit",
+                    true,
+                    &[
+                        &PredefinedMenuItem::undo(h, None)?,
+                        &PredefinedMenuItem::redo(h, None)?,
+                        &PredefinedMenuItem::separator(h)?,
+                        &PredefinedMenuItem::cut(h, None)?,
+                        &PredefinedMenuItem::copy(h, None)?,
+                        &PredefinedMenuItem::paste(h, None)?,
+                        &PredefinedMenuItem::select_all(h, None)?,
+                    ],
+                )?;
+                let window_menu = Submenu::with_items(
+                    h,
+                    "Window",
+                    true,
+                    &[
+                        &PredefinedMenuItem::minimize(h, None)?,
+                        &PredefinedMenuItem::close_window(h, None)?,
+                    ],
+                )?;
+                let menu = Menu::with_items(h, &[&app_menu, &edit_menu, &window_menu])?;
+                app.set_menu(menu)?;
+            }
+
             // Tray icon — always present, even when no windows are open.
             if let Err(e) = build_tray_with_labels(app.handle(), &TrayLabels::english_default()) {
                 eprintln!("failed to build tray icon: {e:#}");
