@@ -84,11 +84,23 @@ jobs:
           security import $RUNNER_TEMP/cert.p12 \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: \
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -k "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
           # Make the build keychain the default search target.
           security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
+          # Verify codesign sees a usable Developer ID Application identity,
+          # then export its SHA-1 — used as APPLE_SIGNING_IDENTITY in the
+          # build step below. Bypasses any whitespace/encoding issues in
+          # the secret value (codesign is picky about exact string match).
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          APPLE_ID_SHA=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep "Developer ID Application" | head -1 | awk '{print $2}')
+          if [ -z "$APPLE_ID_SHA" ]; then
+            echo "::error::Developer ID Application identity not found in build keychain"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_ID_SHA" >> $GITHUB_ENV
 
       - name: Build Tauri bundle
         env:
@@ -97,7 +109,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # macOS code-sign + notarization. Tauri 2 reads these env vars
           # automatically when the keychain has the matching identity.
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_SIGNING_IDENTITY is set in the import step (SHA-1 from
+          # keychain) and inherited via $GITHUB_ENV — don't override here.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
