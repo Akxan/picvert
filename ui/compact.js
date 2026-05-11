@@ -382,7 +382,14 @@ capsule.addEventListener("keydown", (e) => {
 function expandToMain() {
   triggerClickFx();
   document.body.classList.add("leaving");
-  setTimeout(() => invoke("show_main_window"), 200);
+  setTimeout(() => {
+    invoke("show_main_window").finally(() => {
+      // Reset for next time the capsule is shown — otherwise the .leaving
+      // class sticks on the hidden body, and on re-show the capsule paints
+      // invisibly (opacity:0 / scaled out).
+      document.body.classList.remove("leaving");
+    });
+  }, 200);
 }
 
 function triggerClickFx() {

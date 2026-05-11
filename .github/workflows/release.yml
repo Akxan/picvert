@@ -19,9 +19,9 @@ jobs:
           - os: macos-14            # arm64
             target: aarch64-apple-darwin
             host_python: "3.12"
-          - os: macos-13            # intel x86_64
-            target: x86_64-apple-darwin
-            host_python: "3.12"
+          # macos-13 (Intel) is on hold — GitHub queue depth makes
+          # 30-60 min waits common, and Apple Silicon is ≥90% of macOS
+          # installs. Re-enable when an Intel-specific issue surfaces.
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             host_python: "3.12"

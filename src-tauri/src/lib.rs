@@ -521,11 +521,18 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
     // that occasionally trips an "all windows closed" path and the app
     // exits instead of transitioning to the capsule.
     if let Some(w) = app.get_webview_window("compact") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
         // Re-trigger the entrance animation each time the window is shown.
+        // Crucially also strip ".leaving" — when the user clicks the capsule
+        // to expand to main, expandToMain() adds .leaving for the exit
+        // animation; if the user then re-opens compact, the stale .leaving
+        // would keep the body at opacity:0 / scaled out, making the capsule
+        // appear to "not show up" at all.
         let _ = w.eval(
-            "document.body.classList.remove('entering');\
+            "document.body.classList.remove('leaving');\
+             document.body.classList.remove('entering');\
              void document.body.offsetWidth;\
              document.body.classList.add('entering');",
         );
