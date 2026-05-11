@@ -169,19 +169,56 @@ jobs:
           find "$SIDECAR_DIR" -type d -name "*.framework" -exec \
             codesign --verify --verbose=2 --strict --deep {} \;
 
-      - name: Build Tauri bundle
+      - name: Build Tauri bundle (sign only — manual notarize below)
         env:
-          # Updater signing (already wired in v1.1).
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code-sign + notarization. Tauri 2 reads these env vars
-          # automatically when the keychain has the matching identity.
-          # APPLE_SIGNING_IDENTITY is set in the import step (SHA-1 from
-          # keychain) and inherited via $GITHUB_ENV — don't override here.
+          # APPLE_SIGNING_IDENTITY is in $GITHUB_ENV (SHA-1 from keychain).
+          # APPLE_ID / APPLE_PASSWORD intentionally NOT set so Tauri skips
+          # notarization. We do that ourselves below to capture audit log.
+        run: cargo tauri build --target ${{ matrix.target }}
+
+      - name: Notarize and capture audit log
+        if: runner.os == 'macOS'
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: cargo tauri build --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -e
+          APP_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/macos -maxdepth 1 -name "*.app" | head -1)
+          echo "App: $APP_PATH"
+          ZIP_PATH="$RUNNER_TEMP/Picvert-notarize.zip"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+          set +e
+          xcrun notarytool submit "$ZIP_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --output-format json > /tmp/notary.json
+          NOTARY_EXIT=$?
+          set -e
+          cat /tmp/notary.json
+          SUB_ID=$(jq -r '.id' /tmp/notary.json)
+          STATUS=$(jq -r '.status' /tmp/notary.json)
+          echo "Submission $SUB_ID → $STATUS"
+          # Always pull audit log (succeeded or invalid) for visibility.
+          xcrun notarytool log "$SUB_ID" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            /tmp/audit.json || true
+          echo "===== Audit log ====="
+          cat /tmp/audit.json
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::Notarization status was $STATUS"
+            exit 1
+          fi
+          xcrun stapler staple "$APP_PATH"
+          # Re-staple DMG too if present
+          DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -maxdepth 1 -name "*.dmg" 2>/dev/null | head -1 || true)
+          if [ -n "$DMG_PATH" ]; then xcrun stapler staple "$DMG_PATH" || true; fi
 
       - name: Stage release assets
         shell: bash
