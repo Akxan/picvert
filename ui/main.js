@@ -169,6 +169,9 @@ function applyTranslations() {
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.getAttribute("data-i18n"));
   }
+  for (const el of document.querySelectorAll("[data-i18n-title]")) {
+    el.setAttribute("title", t(el.getAttribute("data-i18n-title")));
+  }
   renderEngineStatus();
   render();
   invoke("set_tray_labels", {
@@ -413,9 +416,9 @@ function setUiBusy(b) {
 // ─── render file list ─────────────────────────────────────────────────────
 
 function render() {
-  listCountEl.textContent = String(files.length);
-
+  // Total + breakdown by extension (desc), e.g. "4 · PDF 3 · JPG 1".
   if (files.length === 0) {
+    listCountEl.textContent = "0";
     fileListEl.innerHTML = "";
     const p = document.createElement("p");
     p.className = "empty";
@@ -423,6 +426,17 @@ function render() {
     fileListEl.appendChild(p);
     return;
   }
+  const byType = {};
+  for (const f of files) {
+    const m = f.name.match(/\.([^.]+)$/);
+    const ext = m ? m[1].toUpperCase() : "?";
+    byType[ext] = (byType[ext] || 0) + 1;
+  }
+  const breakdown = Object.entries(byType)
+    .sort((a, b) => b[1] - a[1])
+    .map(([ext, n]) => `${ext} ${n}`)
+    .join(" · ");
+  listCountEl.textContent = `${files.length} · ${breakdown}`;
 
   const frag = document.createDocumentFragment();
   files.forEach((f) => {
