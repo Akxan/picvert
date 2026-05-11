@@ -12,7 +12,7 @@ The Tauri shell ships this folder as `bundle.resources` and spawns
 Build with:
     pyinstaller engine.spec --clean --noconfirm
 """
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 hiddenimports = (
     collect_submodules("pillow_heif")
@@ -21,11 +21,16 @@ hiddenimports = (
     + collect_submodules("PIL")
 )
 
+# Bundle picvert's dist-info so importlib.metadata.version("picvert") works
+# inside the frozen binary — that's how constants.APP_VERSION sources the
+# version string the UI shows in the bottom-left status pill.
+datas = copy_metadata("picvert")
+
 a = Analysis(
     ["picvert/cli.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
