@@ -106,24 +106,45 @@ jobs:
       # sidecar in Resources/engine ships dozens of Mach-O .so/.dylib files
       # — notarization rejects the .app unless every Mach-O inside it is
       # signed with the Developer ID + hardened runtime + secure timestamp.
-      # PyInstaller flattens framework binary install_names to "@rpath/Python"
-      # instead of "@rpath/Python.framework/Versions/X/Python". macOS dyld
-      # still loads it via rpath, but Apple notarytool's structural check
-      # rejects it ("The signature of the binary is invalid") because
-      # framework binaries are required to carry the framework path. We
-      # repair the install_name BEFORE codesign — codesigning would lock
-      # the binary contents.
-      - name: Repair PyInstaller framework install_names
+      # PyInstaller does two things that interfere with notarization:
+      #
+      # 1. It rewrites Python.framework/Versions/X/Python's install_name
+      #    from the canonical "@rpath/Python.framework/Versions/X/Python"
+      #    to "@rpath/Python". dyld still loads it via rpath, but Apple's
+      #    notarytool structural check rejects framework binaries that
+      #    don't carry the framework path.
+      #
+      # 2. It ad-hoc-signs every embedded Mach-O with a junk identifier
+      #    ("Python-<random hex>") instead of the bundle's
+      #    CFBundleIdentifier (org.python.python). When we re-sign with
+      #    Developer ID, codesign sometimes inherits this junk identifier,
+      #    creating a mismatch with the framework Info.plist that the
+      #    notary server validates.
+      #
+      # Fix both BEFORE our codesign step — install_name_tool and
+      # --remove-signature both invalidate any existing signature, so
+      # they must come first.
+      - name: Repair PyInstaller framework artifacts
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -e
           SIDECAR_DIR=dist/picvert-engine
+          # (1) Strip every ad-hoc signature so codesign starts clean.
+          stripped=0
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q "Mach-O"; then
+              codesign --remove-signature "$f" 2>/dev/null || true
+              stripped=$((stripped + 1))
+            fi
+          done < <(find "$SIDECAR_DIR" -type f -print0)
+          echo "Stripped ad-hoc signatures: $stripped Mach-O files"
+          # (2) Restore canonical framework install_names.
           while IFS= read -r -d '' fw; do
             fwname=$(basename "$fw" .framework)
             for vdir in "$fw"/Versions/*/; do
               vdir="${vdir%/}"
-              [ -L "$vdir" ] && continue            # skip Versions/Current symlink
+              [ -L "$vdir" ] && continue
               binary="$vdir/$fwname"
               [ -f "$binary" ] || continue
               ver=$(basename "$vdir")
@@ -195,6 +216,19 @@ jobs:
           codesign --verify --verbose=2 --strict "$SIDECAR_DIR/picvert-engine" 2>&1
           find "$SIDECAR_DIR" -type d -name "*.framework" -exec \
             codesign --verify --verbose=2 --strict --deep {} \;
+          # Diagnostic dump — show framework signature internals so any
+          # leftover Python.cstemp entry or identifier mismatch is visible.
+          echo "===== Framework signature inspection ====="
+          find "$SIDECAR_DIR" -type d -name "*.framework" | while read -r fw; do
+            echo "--- $fw"
+            codesign -dvvv "$fw" 2>&1 | head -10
+            for v in "$fw"/Versions/*/; do
+              v="${v%/}"
+              [ -L "$v" ] && continue
+              echo "--- $v/_CodeSignature/CodeResources files2:"
+              plutil -p "$v/_CodeSignature/CodeResources" 2>&1 | awk '/"files2"/,/^  \}/' | head -20
+            done
+          done
 
       - name: Build Tauri bundle (sign only — manual notarize below)
         env:
