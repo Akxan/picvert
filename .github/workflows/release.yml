@@ -220,7 +220,31 @@ jobs:
             codesign "${SIGN_ARGS[@]}" "$d"
             fw=$((fw + 1))
           done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
-          echo "Signed: $loose loose + $ver version dirs + $fw frameworks"
+          # The two symlinks pointing at the framework's main binary
+          # (_internal/Python and Python.framework/Python) keep failing
+          # notarization with "signature of the binary is invalid" even
+          # though the framework signs cleanly. Apple's notarytool walks
+          # symlinks but evaluates each resulting path as a standalone
+          # binary — without framework context, the Versions/X/Python
+          # signature doesn't count for those paths.
+          #
+          # Replace the symlinks with hard copies of the now-signed
+          # framework binary, then independently sign each copy. dyld
+          # uses install_name (LC_ID_DYLIB) for actual loading, not the
+          # path, so having two physical copies is fine.
+          FW=$(find "$SIDECAR_DIR" -type d -name "Python.framework" | head -1)
+          if [ -n "$FW" ]; then
+            VER_BIN=$(find "$FW/Versions" -mindepth 2 -maxdepth 2 -type f -name "Python" | head -1)
+            for victim in "$SIDECAR_DIR/_internal/Python" "$FW/Python"; do
+              if [ -L "$victim" ]; then
+                echo "De-symlinking $victim -> hard copy"
+                rm "$victim"
+                cp "$VER_BIN" "$victim"
+                codesign "${SIGN_ARGS[@]}" "$victim"
+              fi
+            done
+          fi
+          echo "Signed: $loose loose + $ver version dirs + $fw frameworks (+ de-symlinked Python aliases)"
           # Local strict verification — must pass before letting Tauri proceed.
           codesign --verify --verbose=2 --strict "$SIDECAR_DIR/picvert-engine" 2>&1
           find "$SIDECAR_DIR" -type d -name "*.framework" -exec \
