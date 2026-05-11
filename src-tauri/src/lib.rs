@@ -453,7 +453,10 @@ fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<(), String> {
 /// quietly tear down the app before compact finishes building).
 #[tauri::command]
 fn hide_main_show_compact(app: AppHandle) -> Result<(), String> {
-    show_compact_window(app)
+    dbg_log("hide_main_show_compact: command entered");
+    let r = show_compact_window(app);
+    dbg_log(&format!("hide_main_show_compact: returning {:?}", r.as_ref().err()));
+    r
 }
 
 /// Hard-cancel any in-flight conversion by killing the sidecar subprocess.
@@ -568,16 +571,37 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Append a line to %TEMP%/picvert-debug.log with a millisecond timestamp.
+/// Cheap diagnostic for tracking down the Windows compact-window hang —
+/// if the UI freezes mid-transition, the last log line points at exactly
+/// which builder/show call is blocking.
+fn dbg_log(tag: &str) {
+    let p = std::env::temp_dir().join("picvert-debug.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
+        use std::io::Write;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{ts}] {tag}");
+    }
+}
+
 #[tauri::command]
 fn show_compact_window(app: AppHandle) -> Result<(), String> {
+    dbg_log("show_compact_window: enter");
     // Show or create compact FIRST, then hide main. The reverse order has
     // a window of milliseconds where neither window is visible — on macOS
     // that occasionally trips an "all windows closed" path and the app
     // exits instead of transitioning to the capsule.
     if let Some(w) = app.get_webview_window("compact") {
+        dbg_log("show_compact_window: existing compact found");
         let _ = w.unminimize();
+        dbg_log("show_compact_window: unminimize done");
         let _ = w.show();
+        dbg_log("show_compact_window: show done");
         let _ = w.set_focus();
+        dbg_log("show_compact_window: focus done");
         // Re-trigger the entrance animation each time the window is shown.
         // Crucially also strip ".leaving" — when the user clicks the capsule
         // to expand to main, expandToMain() adds .leaving for the exit
@@ -592,9 +616,12 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         );
         if let Some(m) = app.get_webview_window("main") {
             let _ = m.hide();
+            dbg_log("show_compact_window: main hidden (existing path)");
         }
+        dbg_log("show_compact_window: returning Ok (existing path)");
         return Ok(());
     }
+    dbg_log("show_compact_window: no existing compact, building new");
     // First time: create the compact window.
     //   - transparent(true): NSWindow becomes non-opaque + WKWebView gets
     //     drawsBackground:NO. The HTML body sets `background: transparent`
@@ -629,7 +656,12 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
     {
         builder = builder.transparent(true).shadow(false);
     }
-    let win = builder.build().map_err(|e| e.to_string())?;
+    dbg_log("show_compact_window: about to call builder.build()");
+    let win = builder.build().map_err(|e| {
+        dbg_log(&format!("show_compact_window: build FAILED: {e}"));
+        e.to_string()
+    })?;
+    dbg_log("show_compact_window: build returned Ok");
     // Park near the top-right of the active monitor.
     if let Ok(Some(monitor)) = win.current_monitor() {
         let size = monitor.size();
@@ -637,11 +669,14 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         let x = pos.x + size.width as i32 - 320; // 280 + 40 gutter
         let y = pos.y + 60;
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+        dbg_log("show_compact_window: positioned");
     }
     // Compact is now visible — safe to hide main.
     if let Some(m) = app.get_webview_window("main") {
         let _ = m.hide();
+        dbg_log("show_compact_window: main hidden (build path)");
     }
+    dbg_log("show_compact_window: returning Ok (build path)");
     Ok(())
 }
 
@@ -804,13 +839,18 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
+                    dbg_log("close-requested: intercepted on main");
                     api.prevent_close();
+                    dbg_log("close-requested: prevent_close called");
                     // Tell JS to play the leave animation; JS will then call
                     // hide_main_show_compact when the animation is done.
                     if let Some(w) = window.app_handle().get_webview_window("main") {
                         let _ = w.eval(
                             "window.dispatchEvent(new Event('picvert:close-requested'))",
                         );
+                        dbg_log("close-requested: eval dispatched to JS");
+                    } else {
+                        dbg_log("close-requested: ERR — could not get main webview");
                     }
                 }
             }
