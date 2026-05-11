@@ -668,6 +668,69 @@ body.engine-ready .main {
   justify-content: flex-end;
 }
 
+/* ─────────────────────── update progress overlay ─────────────────── */
+.update-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 14, 8, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 9000;
+  animation: update-fade-in 200ms ease forwards;
+}
+.update-overlay.hidden { display: none; }
+@keyframes update-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.update-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.6rem 1.8rem;
+  width: min(420px, calc(100% - 3rem));
+  box-shadow:
+    0 18px 40px rgba(40, 25, 12, 0.35),
+    0 4px 12px rgba(0, 0, 0, 0.18);
+}
+.update-title {
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin-bottom: 0.9rem;
+  color: var(--ink);
+}
+.update-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.update-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #c9a064, #d0b07e);
+  border-radius: inherit;
+  transition: width 200ms ease;
+}
+.update-bar-fill.indeterminate {
+  width: 40%;
+  animation: update-indeterminate 1.4s ease-in-out infinite;
+}
+@keyframes update-indeterminate {
+  0%   { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+.update-meta {
+  margin-top: 0.7rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ─────────────────────── toast notifications ─────────────────────── */
 .toast-stack {
   position: fixed;

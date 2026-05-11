@@ -5,6 +5,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [1.3.1] — 2026-05-11
 
+### Added
+- **Update progress overlay** — when the user confirms an update,
+  a centred card now shows a smooth percent bar (downloading) and
+  an indeterminate sweep (installing). Both phases translated in
+  the four UI languages. Driven by `update-progress` events that
+  `install_update` emits on every chunk and on download completion.
+
 ### Fixed
 - **Windows could launch multiple Picvert instances** — added
   `tauri-plugin-single-instance` (Windows + Linux only; macOS already

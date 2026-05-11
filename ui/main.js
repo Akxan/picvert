@@ -279,12 +279,58 @@ async function init() {
         { title: t("title"), kind: "info", okLabel: t("update_install_now"), cancelLabel: t("update_later") }
       );
       if (!yes) return;
-      toast(t("update_installing"), "info", 8000);
+      showUpdateProgress("downloading", { downloaded: 0, total: 0, percent: 0 });
       await invoke("install_update");
     } catch (err) {
       console.warn("startup update check failed:", err);
+      hideUpdateProgress();
     }
   }, 5000);
+}
+
+// ─── update progress overlay ─────────────────────────────────────────────
+const updateOverlay = $("update-progress");
+const updateTitle = $("update-title");
+const updateBarFill = $("update-bar-fill");
+const updateMeta = $("update-meta");
+
+function formatBytes(n) {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
+}
+
+function showUpdateProgress(phase, p) {
+  if (phase === "downloading") {
+    updateTitle.textContent = t("update_phase_downloading");
+    updateBarFill.classList.remove("indeterminate");
+    updateBarFill.style.width = `${p.percent}%`;
+    updateMeta.textContent = p.total > 0
+      ? `${formatBytes(p.downloaded)} / ${formatBytes(p.total)}  ·  ${p.percent}%`
+      : formatBytes(p.downloaded);
+  } else if (phase === "installing") {
+    updateTitle.textContent = t("update_phase_installing");
+    updateBarFill.classList.add("indeterminate");
+    updateBarFill.style.width = "";
+    updateMeta.textContent = "";
+  }
+  updateOverlay.classList.remove("hidden");
+}
+
+function hideUpdateProgress() {
+  updateOverlay.classList.add("hidden");
+  updateBarFill.classList.remove("indeterminate");
+  updateBarFill.style.width = "0%";
+}
+
+// Rust emits update-progress events from install_update.
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event.listen("update-progress", (event) => {
+    const p = event.payload || {};
+    showUpdateProgress(p.phase, p);
+  }).catch((err) => console.warn("update-progress listen failed:", err));
 }
 
 // ─── file pickers / drop ──────────────────────────────────────────────────

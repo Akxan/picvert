@@ -172,6 +172,17 @@
     <!-- Toast container — populated by main.js -->
     <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
+    <!-- Update progress overlay — shown only during install_update. -->
+    <div id="update-progress" class="update-overlay hidden" role="dialog" aria-live="polite">
+      <div class="update-card">
+        <div id="update-title" class="update-title"></div>
+        <div class="update-bar">
+          <div id="update-bar-fill" class="update-bar-fill"></div>
+        </div>
+        <div id="update-meta" class="update-meta"></div>
+      </div>
+    </div>
+
     <script type="module" src="main.js"></script>
   </body>
 </html>

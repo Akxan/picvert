@@ -20,7 +20,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 #[cfg(target_os = "macos")]
 use tauri::menu::Submenu;
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -452,9 +452,15 @@ async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResult, String> 
 
 /// Download + minisign-verify + install the latest release, then restart.
 /// Only call AFTER check_for_updates returned available=true and the user
-/// confirmed.
+/// confirmed. Emits `update-progress` events to the frontend so the UI
+/// can render a progress bar — payload shapes:
+///   { phase: "downloading", downloaded, total, percent }
+///   { phase: "installing" }
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
     let updater = app
         .updater()
         .map_err(|e| format!("updater unavailable: {e}"))?;
@@ -463,8 +469,41 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("check failed: {e}"))?
         .ok_or_else(|| "no update available".to_string())?;
+
+    let downloaded = Arc::new(AtomicU64::new(0));
+    let total = Arc::new(AtomicU64::new(0));
+
+    let app_progress = app.clone();
+    let dl = Arc::clone(&downloaded);
+    let tot = Arc::clone(&total);
+    let on_chunk = move |chunk_size: usize, content_length: Option<u64>| {
+        if let Some(c) = content_length {
+            tot.store(c, Ordering::Relaxed);
+        }
+        let now = dl.fetch_add(chunk_size as u64, Ordering::Relaxed) + chunk_size as u64;
+        let total_now = tot.load(Ordering::Relaxed);
+        let percent = if total_now > 0 { (now * 100) / total_now } else { 0 };
+        let _ = app_progress.emit(
+            "update-progress",
+            json!({
+                "phase": "downloading",
+                "downloaded": now,
+                "total": total_now,
+                "percent": percent,
+            }),
+        );
+    };
+
+    let app_installing = app.clone();
+    let on_finish = move || {
+        let _ = app_installing.emit(
+            "update-progress",
+            json!({ "phase": "installing" }),
+        );
+    };
+
     update
-        .download_and_install(|_, _| {}, || {})
+        .download_and_install(on_chunk, on_finish)
         .await
         .map_err(|e| format!("install failed: {e}"))?;
     app.restart();
