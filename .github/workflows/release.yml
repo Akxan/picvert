@@ -102,6 +102,31 @@ jobs:
           fi
           echo "APPLE_SIGNING_IDENTITY=$APPLE_ID_SHA" >> $GITHUB_ENV
 
+      # Tauri's bundler only signs Contents/MacOS/picvert. The PyInstaller
+      # sidecar in Resources/engine ships dozens of Mach-O .so/.dylib files
+      # — notarization rejects the .app unless every Mach-O inside it is
+      # signed with the Developer ID + hardened runtime + secure timestamp.
+      - name: Sign Python sidecar binaries
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -e
+          SIDECAR_DIR=dist/picvert-engine
+          # Find every Mach-O file (regardless of extension) and sign it.
+          # Use `file` to detect Mach-O so we don't try to sign Python
+          # source / data / text files.
+          count=0
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q "Mach-O"; then
+              codesign --force --options runtime --timestamp \
+                --sign "$APPLE_SIGNING_IDENTITY" "$f"
+              count=$((count + 1))
+            fi
+          done < <(find "$SIDECAR_DIR" -type f -print0)
+          echo "Signed $count Mach-O binaries in $SIDECAR_DIR"
+          # Sanity check: the main engine binary must verify.
+          codesign -dv --verbose=2 "$SIDECAR_DIR/picvert-engine" 2>&1 | head -10
+
       - name: Build Tauri bundle
         env:
           # Updater signing (already wired in v1.1).
