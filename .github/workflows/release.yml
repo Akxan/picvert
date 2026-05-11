@@ -112,27 +112,48 @@ jobs:
         run: |
           set -e
           SIDECAR_DIR=dist/picvert-engine
-          SIGN_ARGS=(--force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY")
-          # Two-pass signing — frameworks must be signed as a whole, not
-          # file-by-file (signing a framework's inner binary directly breaks
-          # the bundle's signature integrity that notarization checks).
-          #
-          # Pass 1: sign every Mach-O EXCEPT anything inside *.framework/.
-          count=0
+          # Python interpreter needs these entitlements under hardened runtime:
+          # cffi/etc allocate executable memory; .so plugins are signed
+          # separately so library validation must be relaxed.
+          ENT="$RUNNER_TEMP/picvert-engine.entitlements"
+          cat > "$ENT" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>com.apple.security.cs.allow-jit</key><true/>
+            <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+            <key>com.apple.security.cs.disable-library-validation</key><true/>
+          </dict>
+          </plist>
+          EOF
+          SIGN_ARGS=(--force --options runtime --timestamp --entitlements "$ENT" \
+                     --sign "$APPLE_SIGNING_IDENTITY")
+          # Sign from inside out:
+          # Pass 1 — every Mach-O INSIDE frameworks (includes the framework's
+          #          main binary at Versions/X/Python).
+          inside=0
           while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q "Mach-O"; then
               codesign "${SIGN_ARGS[@]}" "$f"
-              count=$((count + 1))
+              inside=$((inside + 1))
+            fi
+          done < <(find "$SIDECAR_DIR" -path "*.framework/*" -type f -print0)
+          # Pass 2 — every Mach-O OUTSIDE any framework.
+          loose=0
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q "Mach-O"; then
+              codesign "${SIGN_ARGS[@]}" "$f"
+              loose=$((loose + 1))
             fi
           done < <(find "$SIDECAR_DIR" -type f -not -path "*.framework/*" -print0)
-          # Pass 2: sign each .framework as a single bundle. codesign walks
-          # Versions/, resolves symlinks, and produces a framework-wide seal.
-          fwcount=0
-          while IFS= read -r -d '' fw; do
-            codesign "${SIGN_ARGS[@]}" "$fw"
-            fwcount=$((fwcount + 1))
+          # Pass 3 — each .framework bundle as a unit (seals Resources/Info.plist).
+          fw=0
+          while IFS= read -r -d '' d; do
+            codesign "${SIGN_ARGS[@]}" "$d"
+            fw=$((fw + 1))
           done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
-          echo "Signed $count loose Mach-O files + $fwcount frameworks in $SIDECAR_DIR"
+          echo "Signed: $inside inside framework + $loose loose + $fw frameworks"
           codesign -dv --verbose=2 "$SIDECAR_DIR/picvert-engine" 2>&1 | head -10
 
       - name: Build Tauri bundle
