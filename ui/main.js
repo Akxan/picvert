@@ -67,6 +67,30 @@ let cancelRequested = false;
 let engineState = { kind: "loading" }; // tagged union
 let supportedFormats = { input_extensions: [], output_formats: [] };
 
+// path → data URL cache for PDF first-page thumbnails. Without this every
+// render() call (triggered by language switch, status change, etc.) refires
+// the preview_pdf RPC for every PDF row.
+const pdfThumbCache = new Map();
+// path → in-flight Promise so we don't fire duplicate preview RPCs while
+// the first one is still pending (e.g. fast typing in the language picker).
+const pdfThumbInFlight = new Map();
+
+/** Best-effort localised translation of an engine error message. The
+ *  engine returns English `kind` discriminators (unsupported / not_found /
+ *  bad_request / internal / engine_died) — if we have a translation for
+ *  that kind in the active language, use it; otherwise fall back to the
+ *  raw message so the user still sees something. */
+function localizedError(err) {
+  if (!err) return t("err_unknown");
+  if (typeof err === "string") return err;
+  if (err.kind) {
+    const key = `errkind_${err.kind}`;
+    const translated = t(key);
+    if (translated !== key) return translated;
+  }
+  return err.message || errMessage(err);
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────
 
 const fileBadge = (name) => {
@@ -220,9 +244,9 @@ async function init() {
     document.body.classList.add("engine-ready");
     convertBtn.disabled = false;
   } catch (err) {
-    engineState = { kind: "error", err: errMessage(err) };
+    engineState = { kind: "error", err: localizedError(err) };
     renderEngineStatus();
-    toast(t("engine_error", { err: errMessage(err) }), "error", 6000);
+    toast(t("engine_error", { err: localizedError(err) }), "error", 6000);
   }
 
   try {
@@ -296,9 +320,14 @@ if (appWindow?.listen) {
     if (raw.length === 0) return;
     // Expand any folders in the drop into their contained supported files.
     let paths = raw;
-    try { paths = await invoke("expand_folders", { paths: raw }); }
-    catch (e) { console.warn("expand_folders failed", e); }
+    let truncated = false;
+    try {
+      const r = await invoke("expand_folders", { paths: raw });
+      paths = r.paths || [];
+      truncated = !!r.truncated;
+    } catch (e) { console.warn("expand_folders failed", e); }
     addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() })));
+    if (truncated) toast(t("msg_truncated"), "info", 4500);
   }).catch(() => {});
   appWindow.listen("tauri://drag-enter", () => dropzone.classList.add("dragover")).catch(() => {});
   appWindow.listen("tauri://drag-leave", () => dropzone.classList.remove("dragover")).catch(() => {});
@@ -339,7 +368,7 @@ changeOutputBtn.addEventListener("click", async () => {
 openOutputBtn.addEventListener("click", async () => {
   if (!outputFolder) return;
   try { await invoke("open_path", { path: outputFolder }); }
-  catch (err) { toast(errMessage(err), "error"); }
+  catch (err) { toast(localizedError(err), "error"); }
 });
 
 // ─── conversion loop ──────────────────────────────────────────────────────
@@ -351,6 +380,50 @@ cancelBtn.addEventListener("click", () => {
   // doesn't run to completion. The Rust side will respawn on next use.
   invoke("engine_cancel").catch(() => {});
 });
+
+/** Run a single conversion against the engine and update the file row's
+ *  status. Returns true on success, false on error — caller drives the
+ *  batch progress counters. Shared between the initial batch and the
+ *  per-row retry button. */
+async function runConvertOne(f, fmt, quality, maxDim) {
+  f.statusKey = "running";
+  f.statusParams = undefined;
+  f.statusClass = "";
+  render();
+  try {
+    const r = await invoke("convert_one", {
+      input: f.path, outDir: outputFolder, format: fmt,
+      quality, maxDim,
+    });
+    f.statusKey = "ok";
+    f.statusParams = { n: r.written };
+    f.statusClass = "ok";
+    render();
+    return true;
+  } catch (e) {
+    f.statusKey = "err";
+    f.statusParams = { err: localizedError(e) };
+    f.statusClass = "err";
+    render();
+    return false;
+  }
+}
+
+/** Retry a single failed file with current UI settings. No-op while a
+ *  batch is in flight (avoids racing the worker pool). */
+async function retryFile(f) {
+  if (busy) return;
+  if (!outputFolder) {
+    const picked = await invoke("pick_output_folder");
+    if (!picked) return;
+    setOutputFolder(picked);
+  }
+  const fmt = formatSelect.value;
+  const quality = Number(qualitySlider.value) || 90;
+  const maxDimRaw = Number(maxDimInput.value) || 0;
+  const maxDim = maxDimRaw > 0 ? maxDimRaw : null;
+  await runConvertOne(f, fmt, quality, maxDim);
+}
 
 async function startConversion() {
   if (busy) return;
@@ -382,27 +455,11 @@ async function startConversion() {
   let cursor = 0;
   const convertOne = async (f) => {
     if (cancelRequested) { f.statusKey = "queued"; return; }
-    f.statusKey = "running";
-    render();
-    try {
-      const r = await invoke("convert_one", {
-        input: f.path, outDir: outputFolder, format: fmt,
-        quality, maxDim,
-      });
-      f.statusKey = "ok";
-      f.statusParams = { n: r.written };
-      f.statusClass = "ok";
-      ok++;
-    } catch (e) {
-      f.statusKey = "err";
-      f.statusParams = { err: errMessage(e) };
-      f.statusClass = "err";
-      err++;
-    }
+    const success = await runConvertOne(f, fmt, quality, maxDim);
+    if (success) ok++; else err++;
     done++;
     barFill.style.width = `${(done / files.length) * 100}%`;
     progressText.textContent = `${done} / ${files.length}`;
-    render();
   };
   const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, async () => {
     while (cursor < files.length && !cancelRequested) {
@@ -501,19 +558,37 @@ function render() {
       };
       thumb.appendChild(img);
     } else if (PDF_EXT.test(f.name)) {
-      // Show the PDF badge immediately; async-replace with the
-      // engine-rendered first-page thumbnail when it comes back.
-      const b = document.createElement("span");
-      b.className = "badge";
-      b.textContent = fileBadge(f.name);
-      thumb.appendChild(b);
-      invoke("preview_pdf", { path: f.path }).then((dataurl) => {
-        if (!dataurl) return;
+      // Try cache first — render() runs every time the file list changes
+      // (status updates, language switches, etc.) and PDFs are the only
+      // thumbnails generated through an RPC, so caching matters.
+      const cached = pdfThumbCache.get(f.path);
+      if (cached) {
         const img = document.createElement("img");
-        img.src = dataurl;
+        img.src = cached;
         img.alt = "";
-        thumb.replaceChildren(img);
-      }).catch(() => { /* leave the badge */ });
+        thumb.appendChild(img);
+      } else {
+        const b = document.createElement("span");
+        b.className = "badge";
+        b.textContent = fileBadge(f.name);
+        thumb.appendChild(b);
+        let pending = pdfThumbInFlight.get(f.path);
+        if (!pending) {
+          pending = invoke("preview_pdf", { path: f.path });
+          pdfThumbInFlight.set(f.path, pending);
+        }
+        pending.then((dataurl) => {
+          pdfThumbInFlight.delete(f.path);
+          if (!dataurl) return;
+          pdfThumbCache.set(f.path, dataurl);
+          // Re-render only if THIS row is still the one currently shown
+          // (the user might have removed/cleared the file in the meantime).
+          if (files.indexOf(f) >= 0) render();
+        }).catch(() => {
+          pdfThumbInFlight.delete(f.path);
+          // leave the badge
+        });
+      }
     } else {
       const b = document.createElement("span");
       b.className = "badge";
@@ -532,6 +607,20 @@ function render() {
     status.className = `status ${f.statusClass || ""}`.trim();
     status.textContent = t(`status_${f.statusKey}`, f.statusParams || {});
     row.appendChild(status);
+
+    if (f.statusKey === "err") {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "retry-btn";
+      retryBtn.title = t("btn_retry");
+      retryBtn.setAttribute("aria-label", t("btn_retry"));
+      retryBtn.textContent = "↻";
+      if (busy) retryBtn.disabled = true;
+      retryBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        retryFile(f);
+      });
+      row.appendChild(retryBtn);
+    }
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove-btn";
@@ -570,7 +659,7 @@ async function checkForUpdates() {
       ? t("update_available", { ver: r.version })
       : t("update_uptodate");
   } catch (err) {
-    updateStatusEl.textContent = t("update_failed", { err: errMessage(err) });
+    updateStatusEl.textContent = t("update_failed", { err: localizedError(err) });
   }
 }
 
