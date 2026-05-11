@@ -168,14 +168,20 @@ def main(argv: list[str] | None = None) -> int:
             except json.JSONDecodeError as exc:
                 _emit(_err(None, f"invalid JSON: {exc}", kind="bad_request"))
                 continue
-            # ping / list_formats / shutdown are fast and order-sensitive —
-            # handle them inline so they don't sit behind heavy converts.
+            # ping / list_formats are fast — handle them inline so they
+            # don't sit behind heavy converts.
             action = req.get("action")
-            if action in ("ping", "list_formats", "shutdown"):
+            if action in ("ping", "list_formats"):
                 _emit(_handle(req))
-                if action == "shutdown":
-                    return 0
                 continue
+            # shutdown must be the LAST response, so flush any in-flight
+            # workers before acknowledging it (otherwise the parent could
+            # see "goodbye" before a still-running convert's result).
+            if action == "shutdown":
+                _executor.shutdown(wait=True)
+                _executor = None
+                _emit(_handle(req))
+                return 0
             _executor.submit(_process, req)
     finally:
         if _executor is not None:
