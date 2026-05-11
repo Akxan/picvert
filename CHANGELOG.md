@@ -3,6 +3,15 @@
 All notable changes to **Picvert** are documented here.
 Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] — 2026-05-11
+
+### Fixed
+- **Windows could launch multiple Picvert instances** — added
+  `tauri-plugin-single-instance` (Windows + Linux only; macOS already
+  single-instances via LaunchServices). A second launch now wakes the
+  existing main (or compact) window instead of spawning another
+  process.
+
 ## [1.3.0] — 2026-05-11
 
 ### Added

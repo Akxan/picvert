@@ -34,6 +34,13 @@ tokio = { version = "1", features = ["sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 url = "2"
 
+# Single-instance enforcement is Windows/Linux only — macOS already
+# single-instances by default through LaunchServices. The plugin's init()
+# takes a callback fired in the existing process when a second launch is
+# attempted; we use it to bring the existing window forward.
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

@@ -761,7 +761,30 @@ fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // mut is only consumed under cfg(windows/linux); silence the macOS warning.
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+    // macOS already single-instances via LaunchServices. Windows/Linux need
+    // explicit enforcement — install the plugin and, when a second launch
+    // is attempted, raise the existing main (or compact) window.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Prefer waking the main window; fall back to compact if that's
+            // the only one visible (user has the capsule open).
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+                return;
+            }
+            if let Some(w) = app.get_webview_window("compact") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }));
+    }
+    builder
         // macOSPrivateApi is enabled via tauri.conf.json + Cargo feature
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
