@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "picvert"
-version = "1.2.0"
+version = "1.2.1"
 description = "Batch image / PDF / document converter — Python sidecar for the Tauri desktop shell"
 readme = "README.md"
 requires-python = ">=3.10"

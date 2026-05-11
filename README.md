@@ -8,7 +8,7 @@ A native desktop shell (Tauri) backed by a Python engine.
 | **Platforms** | macOS · Windows · Linux |
 | **Auto-update** | ✅ via GitHub Releases |
 | **License** | Apache-2.0 |
-| **Status** | 1.2.0 |
+| **Status** | 1.2.1 |
 
 > Drag files (or whole folders) in, choose a format, click Convert.
 > A floating capsule on your desktop shows time + weather while

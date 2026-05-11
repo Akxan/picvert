@@ -339,6 +339,39 @@ fn expand_folders(paths: Vec<String>) -> Vec<String> {
     out
 }
 
+/// Open a regular file with the OS's default app (Preview, Adobe Reader,
+/// etc). Used when the user clicks a thumbnail to inspect the source.
+/// Refuses anything that's not an absolute path to an existing regular
+/// file — keeps the renderer from using this as a generic URL opener.
+#[tauri::command]
+async fn open_file(app: AppHandle, path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("refused: path must be absolute".into());
+    }
+    let meta = std::fs::symlink_metadata(&p).map_err(|e| format!("stat: {e}"))?;
+    if !meta.is_file() {
+        return Err("refused: path is not a regular file".into());
+    }
+    app.shell()
+        .open(p.to_string_lossy().to_string(), None)
+        .map_err(|e| format!("open failed: {e}"))
+}
+
+/// Ask the sidecar to render a small thumbnail of a PDF's first page.
+/// Returns a base64 data URL the UI can drop straight into <img src>.
+#[tauri::command]
+async fn preview_pdf(app: AppHandle, path: String) -> Result<String, String> {
+    match run_engine(&app, json!({ "action": "preview", "input": path })).await {
+        Ok(result) => result
+            .get("dataurl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| "engine returned no dataurl".to_string()),
+        Err(e) => Err(e.message),
+    }
+}
+
 /// Open a multi-select file picker. Returns absolute paths the renderer
 /// can hand straight back to convert_one. Used instead of HTML `<input
 /// type="file">` because that doesn't expose absolute paths in Tauri's
@@ -721,6 +754,8 @@ pub fn run() {
             convert_one,
             pick_output_folder,
             pick_input_files,
+            preview_pdf,
+            open_file,
             expand_folders,
             show_main_window,
             show_compact_window,

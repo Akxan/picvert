@@ -56,7 +56,8 @@ const toastStack = $("toast-stack");
 const LS_OUTPUT = "picvert.outputFolder";
 const LS_QUALITY = "picvert.quality";
 const LS_MAX_DIM = "picvert.maxDim";
-const IMAGE_EXT = /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic)$/i;
+const IMAGE_EXT = /\.(png|jpe?g|jfif|bmp|gif|tiff?|webp|ico|ppm|tga|jp2|heic|svg)$/i;
+const PDF_EXT = /\.pdf$/i;
 const LOSSY_FORMATS = new Set(["JPEG", "JPG", "JFIF", "WEBP", "JPEG2000", "HEIC"]);
 
 let files = [];
@@ -353,11 +354,13 @@ async function startConversion() {
   const maxDimRaw = Number(maxDimInput.value) || 0;
   const maxDim = maxDimRaw > 0 ? maxDimRaw : null;
 
-  for (const f of files) {
-    if (cancelRequested) {
-      f.statusKey = "queued";
-      continue;
-    }
+  // Sidecar now has a 4-thread pool, so dispatch up to 4 conversions
+  // concurrently. Local concurrency cap mirrors the worker count so we
+  // don't queue more than the sidecar can actually run in parallel.
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  const convertOne = async (f) => {
+    if (cancelRequested) { f.statusKey = "queued"; return; }
     f.statusKey = "running";
     render();
     try {
@@ -379,7 +382,14 @@ async function startConversion() {
     barFill.style.width = `${(done / files.length) * 100}%`;
     progressText.textContent = `${done} / ${files.length}`;
     render();
-  }
+  };
+  const workers = Array.from({ length: Math.min(CONCURRENCY, files.length) }, async () => {
+    while (cursor < files.length && !cancelRequested) {
+      const f = files[cursor++];
+      await convertOne(f);
+    }
+  });
+  await Promise.all(workers);
 
   progressSummary.textContent = t("summary_done", { ok, err });
   progressSummary.classList.remove("hidden");
@@ -445,6 +455,17 @@ function render() {
 
     const thumb = document.createElement("div");
     thumb.className = "thumb";
+    thumb.title = t("thumb_open_tip") || "Open source file";
+    thumb.addEventListener("click", (e) => {
+      e.stopPropagation();
+      console.log("thumb click → open_file:", f.path);
+      invoke("open_file", { path: f.path })
+        .then(() => console.log("open_file ok"))
+        .catch((err) => {
+          console.warn("open_file failed:", err);
+          toast(`open failed: ${err}`, "error", 4000);
+        });
+    });
     if (IMAGE_EXT.test(f.name) && convertFileSrc) {
       const img = document.createElement("img");
       img.src = convertFileSrc(f.path);
@@ -458,6 +479,20 @@ function render() {
         thumb.appendChild(b);
       };
       thumb.appendChild(img);
+    } else if (PDF_EXT.test(f.name)) {
+      // Show the PDF badge immediately; async-replace with the
+      // engine-rendered first-page thumbnail when it comes back.
+      const b = document.createElement("span");
+      b.className = "badge";
+      b.textContent = fileBadge(f.name);
+      thumb.appendChild(b);
+      invoke("preview_pdf", { path: f.path }).then((dataurl) => {
+        if (!dataurl) return;
+        const img = document.createElement("img");
+        img.src = dataurl;
+        img.alt = "";
+        thumb.replaceChildren(img);
+      }).catch(() => { /* leave the badge */ });
     } else {
       const b = document.createElement("span");
       b.className = "badge";
