@@ -3,6 +3,58 @@
 All notable changes to **Picvert** are documented here.
 Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-05-11
+
+### Added
+- **PDF first-page thumbnail cache** — repeated renders return the cached
+  PNG instead of re-rendering through PyMuPDF on every list refresh.
+- **Retry failed file** button on each failed row.
+- **Localised engine errors** — error kinds (`unsupported` / `not_found` /
+  `bad_request` / `internal` / `engine_died`) translate to the active UI
+  language instead of always showing the English Python message.
+- **Click any thumbnail** to open the source file in the OS default app
+  (Preview, Adobe Reader, etc.).
+- **Per-extension breakdown** beside the file count (`5 · PDF 4 · JPG 1`).
+- **Window state persistence** — main window remembers its last
+  position / size across launches.
+- **Hover spin** on the capsule weather icon.
+
+### Changed
+- **Batch conversion runs in parallel** — sidecar thread pool of 4
+  workers, JS dispatches up to 4 in-flight conversions. ≈3-4× faster
+  on multi-image / multi-page-PDF batches.
+- **Compact window is pre-created at startup** (visible: false in
+  `tauri.conf.json`) to dodge a WebView2 hang on Windows where a
+  runtime `WebviewWindowBuilder::build()` for a second webview never
+  returned.
+- **Folder walk hardened** — defends against symlink loops and
+  unreadable subtrees; clamps to 5000 files / drop.
+- **Switched to `tauri-plugin-opener`** for shell.open (the previous
+  `tauri-plugin-shell` open API is deprecated).
+- **Minimal macOS menu** — Picvert / Edit / Window only (was an
+  auto-generated File / View / Help layout with empty submenus).
+- **`APP_VERSION` now reads from package metadata** so release bumps
+  only touch `pyproject.toml`.
+
+### Fixed
+- **Windows capsule freeze** — main panel blanked out and never became
+  the capsule because the second-webview `build()` call hung. The
+  pre-created window approach makes this transition a `show()` instead.
+- **Capsule sometimes didn't appear** after toggling main ↔ compact
+  several times (`.leaving` class stuck on the body).
+- **App could exit instead of going to capsule** on first close —
+  hide-main / build-compact ordering left zero visible windows briefly.
+- **Capsule corner halo** — replaced `filter: blur(20px)` on
+  `.card-glow` with radial gradients (compositor leaks past rounded
+  clip on transparent NSWindow).
+- **Tab outline on capsule** — removed the default focus ring.
+- **Auto-updater wired up properly** — `bundle.createUpdaterArtifacts:
+  true` emits `.app.tar.gz` / `.exe.sig` pairs; regenerated minisign
+  key pair after the previous one was base64-corrupted.
+- **Sidecar consistent CSV naming** + multi-sheet XLSX handling.
+- **Capsule position clamps to current monitor** when dragged off
+  screen.
+
 ## [1.2.1] — 2026-05-11
 
 ### Added

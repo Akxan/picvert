@@ -715,7 +715,7 @@ fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
         .and_then(|bytes| tauri::image::Image::from_bytes(&bytes).ok())
         .unwrap_or_else(|| app.default_window_icon().cloned().unwrap());
 
-    let builder = TrayIconBuilder::with_id("main")
+    let mut builder = TrayIconBuilder::with_id("main")
         .icon(tray_icon_image)
         // template-mode is macOS-only and only meaningful for the black icon;
         // the coloured Windows/Linux icons should render as-is.
