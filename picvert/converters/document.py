@@ -204,18 +204,29 @@ def _xlsx_to_csv(
     output_folder: Path,
     ext_out: str,
 ) -> int:
-    """Write one CSV per sheet. Single-sheet → keep stem; multi → suffix with sheet name."""
-    if len(sheets) == 1:
-        name, rows = next(iter(sheets.items()))
-        out = output_folder / (file_path.stem + ext_out)
-        _write_csv(rows, out)
-        logger.info("Document converted %s → %s", file_path, out)
-        return 1
+    """Write one CSV per sheet.
 
+    Naming is always `<stem>__<sheet>.csv` — including for the single-sheet
+    case. Previously single-sheet skipped the suffix, but that produced
+    different filenames depending on workbook structure, which collided
+    badly when a batch contained both shapes (e.g. a `report.xlsx` with one
+    sheet and a sibling `report.csv` would clobber each other).
+
+    Sheet names are sanitised to filesystem-safe characters; collisions
+    after sanitisation (e.g. `A/B` and `A_B` both → `A_B`) get a numeric
+    suffix so no write is silently dropped.
+    """
+    used: set[str] = set()
     written = 0
     for sheet_name, rows in sheets.items():
-        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in sheet_name)
-        out = output_folder / f"{file_path.stem}__{safe}{ext_out}"
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in sheet_name) or "sheet"
+        candidate = safe
+        n = 1
+        while candidate in used:
+            n += 1
+            candidate = f"{safe}_{n}"
+        used.add(candidate)
+        out = output_folder / f"{file_path.stem}__{candidate}{ext_out}"
         _write_csv(rows, out)
         logger.info("Document converted %s sheet %r → %s", file_path, sheet_name, out)
         written += 1

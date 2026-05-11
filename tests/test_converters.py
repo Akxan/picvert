@@ -163,9 +163,27 @@ class TestDocumentConversion:
         src = _make_xlsx(tmp_path / "in.xlsx")
         n = convert_file(src, tmp_path / "out", "CSV")
         assert n == 1
-        with (tmp_path / "out" / "in.csv").open() as f:
+        # Always uses the __<sheet> suffix now (even for 1 sheet) so naming
+        # is uniform across workbook shapes — see _xlsx_to_csv docstring.
+        out = tmp_path / "out" / "in__First.csv"
+        assert out.exists()
+        with out.open() as f:
             rows = list(csv.reader(f))
         assert rows == [["h1", "h2"], ["v1", "v2"]]
+
+    def test_xlsx_to_csv_sheetname_collision_after_sanitisation(self, tmp_path: Path) -> None:
+        """Two sheet names that sanitise to the same filename must not collide."""
+        src = tmp_path / "in.xlsx"
+        wb = Workbook()
+        wb.active.title = "A B"  # space → "_"
+        wb.active.append(["a", "1"])
+        wb.create_sheet("A_B").append(["b", "2"])  # already "A_B" — collides post-sanitise
+        wb.save(str(src))
+        n = convert_file(src, tmp_path / "out", "CSV")
+        assert n == 2
+        # Both files must exist with distinct content (no silent overwrite).
+        files = sorted((tmp_path / "out").glob("in__*.csv"))
+        assert len(files) == 2
 
     def test_xlsx_to_csv_multi_sheet_writes_one_csv_per_sheet(self, tmp_path: Path) -> None:
         src = tmp_path / "in.xlsx"
