@@ -761,17 +761,40 @@ pub fn run() {
         // show-compact happens via the hide_main_show_compact command after
         // the animation finishes.
         .on_window_event(|window, event| {
-            if window.label() == "main" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    // Tell JS to play the leave animation; JS will then call
-                    // hide_main_show_compact when the animation is done.
-                    if let Some(w) = window.app_handle().get_webview_window("main") {
-                        let _ = w.eval(
-                            "window.dispatchEvent(new Event('picvert:close-requested'))",
-                        );
+            match window.label() {
+                "main" => {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        // Tell JS to play the leave animation; JS will then call
+                        // hide_main_show_compact when the animation is done.
+                        if let Some(w) = window.app_handle().get_webview_window("main") {
+                            let _ = w.eval(
+                                "window.dispatchEvent(new Event('picvert:close-requested'))",
+                            );
+                        }
                     }
                 }
+                "compact" => {
+                    // Keep the dragged capsule fully on-screen — without this
+                    // the user can drag it past any edge and lose it. We clamp
+                    // on every Moved event; the corrective set_position fires
+                    // a second Moved with an in-bounds value, which clamps to
+                    // itself (idempotent), so no infinite loop.
+                    if let WindowEvent::Moved(pos) = event {
+                        if let (Ok(Some(monitor)), Ok(size)) = (window.current_monitor(), window.outer_size()) {
+                            let m_pos = monitor.position();
+                            let m_size = monitor.size();
+                            let max_x = m_pos.x + m_size.width as i32 - size.width as i32;
+                            let max_y = m_pos.y + m_size.height as i32 - size.height as i32;
+                            let clamped_x = pos.x.clamp(m_pos.x, max_x);
+                            let clamped_y = pos.y.clamp(m_pos.y, max_y);
+                            if clamped_x != pos.x || clamped_y != pos.y {
+                                let _ = window.set_position(tauri::PhysicalPosition::new(clamped_x, clamped_y));
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .setup(|app| {
