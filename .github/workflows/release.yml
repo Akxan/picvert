@@ -112,9 +112,8 @@ jobs:
         run: |
           set -e
           SIDECAR_DIR=dist/picvert-engine
-          # Python interpreter needs these entitlements under hardened runtime:
-          # cffi/etc allocate executable memory; .so plugins are signed
-          # separately so library validation must be relaxed.
+          # Hardened runtime + Python: JIT/cffi allocate executable memory;
+          # .so plugins are signed separately so library validation off.
           ENT="$RUNNER_TEMP/picvert-engine.entitlements"
           cat > "$ENT" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -129,17 +128,14 @@ jobs:
           EOF
           SIGN_ARGS=(--force --options runtime --timestamp --entitlements "$ENT" \
                      --sign "$APPLE_SIGNING_IDENTITY")
-          # Sign from inside out:
-          # Pass 1 — every Mach-O INSIDE frameworks (includes the framework's
-          #          main binary at Versions/X/Python).
-          inside=0
-          while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -q "Mach-O"; then
-              codesign "${SIGN_ARGS[@]}" "$f"
-              inside=$((inside + 1))
-            fi
-          done < <(find "$SIDECAR_DIR" -path "*.framework/*" -type f -print0)
-          # Pass 2 — every Mach-O OUTSIDE any framework.
+          # Strip stale state — quarantine xattrs + leftover ad-hoc _CodeSignature
+          # directories produced by PyInstaller that confuse the inside-out
+          # framework-signing flow.
+          xattr -cr "$SIDECAR_DIR"
+          find "$SIDECAR_DIR" -name "_CodeSignature" -type d -exec rm -rf {} + 2>/dev/null || true
+          # Inside-out signing in three passes.
+          # Pass 1 — all loose Mach-O (.so / .dylib / main binary), OUTSIDE
+          #          any framework.
           loose=0
           while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q "Mach-O"; then
@@ -147,14 +143,28 @@ jobs:
               loose=$((loose + 1))
             fi
           done < <(find "$SIDECAR_DIR" -type f -not -path "*.framework/*" -print0)
-          # Pass 3 — each .framework bundle as a unit (seals Resources/Info.plist).
+          # Pass 2 — each framework Version directory (NOT the inner binary
+          #          alone). codesign generates Versions/X/_CodeSignature/
+          #          which seals the version's Mach-O + Resources/Info.plist
+          #          as a unit. -type d skips the Versions/Current symlink
+          #          because BSD find's -type d uses lstat.
+          ver=0
+          while IFS= read -r -d '' d; do
+            codesign "${SIGN_ARGS[@]}" "$d"
+            ver=$((ver + 1))
+          done < <(find "$SIDECAR_DIR" -type d -path "*.framework/Versions/*" -print0)
+          # Pass 3 — each framework bundle (top level). Sets up
+          #          Versions/Current symlink seal + outer Resources.
           fw=0
           while IFS= read -r -d '' d; do
             codesign "${SIGN_ARGS[@]}" "$d"
             fw=$((fw + 1))
           done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
-          echo "Signed: $inside inside framework + $loose loose + $fw frameworks"
-          codesign -dv --verbose=2 "$SIDECAR_DIR/picvert-engine" 2>&1 | head -10
+          echo "Signed: $loose loose + $ver version dirs + $fw frameworks"
+          # Local strict verification — must pass before letting Tauri proceed.
+          codesign --verify --verbose=2 --strict "$SIDECAR_DIR/picvert-engine" 2>&1
+          find "$SIDECAR_DIR" -type d -name "*.framework" -exec \
+            codesign --verify --verbose=2 --strict --deep {} \;
 
       - name: Build Tauri bundle
         env:
