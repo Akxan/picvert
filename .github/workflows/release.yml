@@ -112,19 +112,27 @@ jobs:
         run: |
           set -e
           SIDECAR_DIR=dist/picvert-engine
-          # Find every Mach-O file (regardless of extension) and sign it.
-          # Use `file` to detect Mach-O so we don't try to sign Python
-          # source / data / text files.
+          SIGN_ARGS=(--force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY")
+          # Two-pass signing — frameworks must be signed as a whole, not
+          # file-by-file (signing a framework's inner binary directly breaks
+          # the bundle's signature integrity that notarization checks).
+          #
+          # Pass 1: sign every Mach-O EXCEPT anything inside *.framework/.
           count=0
           while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q "Mach-O"; then
-              codesign --force --options runtime --timestamp \
-                --sign "$APPLE_SIGNING_IDENTITY" "$f"
+              codesign "${SIGN_ARGS[@]}" "$f"
               count=$((count + 1))
             fi
-          done < <(find "$SIDECAR_DIR" -type f -print0)
-          echo "Signed $count Mach-O binaries in $SIDECAR_DIR"
-          # Sanity check: the main engine binary must verify.
+          done < <(find "$SIDECAR_DIR" -type f -not -path "*.framework/*" -print0)
+          # Pass 2: sign each .framework as a single bundle. codesign walks
+          # Versions/, resolves symlinks, and produces a framework-wide seal.
+          fwcount=0
+          while IFS= read -r -d '' fw; do
+            codesign "${SIGN_ARGS[@]}" "$fw"
+            fwcount=$((fwcount + 1))
+          done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
+          echo "Signed $count loose Mach-O files + $fwcount frameworks in $SIDECAR_DIR"
           codesign -dv --verbose=2 "$SIDECAR_DIR/picvert-engine" 2>&1 | head -10
 
       - name: Build Tauri bundle
