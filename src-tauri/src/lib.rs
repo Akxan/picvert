@@ -514,9 +514,10 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn show_compact_window(app: AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
-    }
+    // Show or create compact FIRST, then hide main. The reverse order has
+    // a window of milliseconds where neither window is visible — on macOS
+    // that occasionally trips an "all windows closed" path and the app
+    // exits instead of transitioning to the capsule.
     if let Some(w) = app.get_webview_window("compact") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -526,6 +527,9 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
              void document.body.offsetWidth;\
              document.body.classList.add('entering');",
         );
+        if let Some(m) = app.get_webview_window("main") {
+            let _ = m.hide();
+        }
         return Ok(());
     }
     // First time: create the compact window.
@@ -563,6 +567,10 @@ fn show_compact_window(app: AppHandle) -> Result<(), String> {
         let x = pos.x + size.width as i32 - 320; // 280 + 40 gutter
         let y = pos.y + 60;
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    // Compact is now visible — safe to hide main.
+    if let Some(m) = app.get_webview_window("main") {
+        let _ = m.hide();
     }
     Ok(())
 }
