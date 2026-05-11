@@ -130,16 +130,14 @@ jobs:
         run: |
           set -e
           SIDECAR_DIR=dist/picvert-engine
-          # (1) Strip every ad-hoc signature so codesign starts clean.
-          stripped=0
-          while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -q "Mach-O"; then
-              codesign --remove-signature "$f" 2>/dev/null || true
-              stripped=$((stripped + 1))
-            fi
-          done < <(find "$SIDECAR_DIR" -type f -print0)
-          echo "Stripped ad-hoc signatures: $stripped Mach-O files"
-          # (2) Restore canonical framework install_names.
+          # Order matters: install_name_tool first (it refuses to touch a
+          # binary that's been --remove-signature'd because that leaves an
+          # empty LC_CODE_SIGNATURE block hanging at the end of __LINKEDIT
+          # with no payload — link edit information does not fill the
+          # __LINKEDIT segment).
+          #
+          # (1) Restore canonical framework install_names. Modifying the
+          # binary invalidates any embedded ad-hoc signature.
           while IFS= read -r -d '' fw; do
             fwname=$(basename "$fw" .framework)
             for vdir in "$fw"/Versions/*/; do
@@ -153,6 +151,17 @@ jobs:
               install_name_tool -id "$new_id" "$binary"
             done
           done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
+          # (2) Now strip every ad-hoc signature so the codesign step
+          # below starts from a clean slate (so it can't inherit
+          # PyInstaller's junk "Python-<random>" identifier).
+          stripped=0
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q "Mach-O"; then
+              codesign --remove-signature "$f" 2>/dev/null || true
+              stripped=$((stripped + 1))
+            fi
+          done < <(find "$SIDECAR_DIR" -type f -print0)
+          echo "Stripped ad-hoc signatures: $stripped Mach-O files"
 
       - name: Sign Python sidecar binaries
         if: runner.os == 'macOS'
