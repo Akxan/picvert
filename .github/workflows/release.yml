@@ -106,6 +106,33 @@ jobs:
       # sidecar in Resources/engine ships dozens of Mach-O .so/.dylib files
       # — notarization rejects the .app unless every Mach-O inside it is
       # signed with the Developer ID + hardened runtime + secure timestamp.
+      # PyInstaller flattens framework binary install_names to "@rpath/Python"
+      # instead of "@rpath/Python.framework/Versions/X/Python". macOS dyld
+      # still loads it via rpath, but Apple notarytool's structural check
+      # rejects it ("The signature of the binary is invalid") because
+      # framework binaries are required to carry the framework path. We
+      # repair the install_name BEFORE codesign — codesigning would lock
+      # the binary contents.
+      - name: Repair PyInstaller framework install_names
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -e
+          SIDECAR_DIR=dist/picvert-engine
+          while IFS= read -r -d '' fw; do
+            fwname=$(basename "$fw" .framework)
+            for vdir in "$fw"/Versions/*/; do
+              vdir="${vdir%/}"
+              [ -L "$vdir" ] && continue            # skip Versions/Current symlink
+              binary="$vdir/$fwname"
+              [ -f "$binary" ] || continue
+              ver=$(basename "$vdir")
+              new_id="@rpath/$(basename "$fw")/Versions/$ver/$fwname"
+              echo "install_name_tool -id $new_id  ($binary)"
+              install_name_tool -id "$new_id" "$binary"
+            done
+          done < <(find "$SIDECAR_DIR" -type d -name "*.framework" -print0)
+
       - name: Sign Python sidecar binaries
         if: runner.os == 'macOS'
         shell: bash
