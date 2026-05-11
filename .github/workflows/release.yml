@@ -146,13 +146,16 @@ jobs:
           # Pass 2 — each framework Version directory (NOT the inner binary
           #          alone). codesign generates Versions/X/_CodeSignature/
           #          which seals the version's Mach-O + Resources/Info.plist
-          #          as a unit. -type d skips the Versions/Current symlink
-          #          because BSD find's -type d uses lstat.
+          #          as a unit. We must limit to direct children of Versions/
+          #          (e.g. Versions/3.12) — NOT Versions/3.12/Resources or
+          #          deeper. `-type d` also skips the Versions/Current
+          #          symlink because BSD find's -type d uses lstat.
           ver=0
           while IFS= read -r -d '' d; do
             codesign "${SIGN_ARGS[@]}" "$d"
             ver=$((ver + 1))
-          done < <(find "$SIDECAR_DIR" -type d -path "*.framework/Versions/*" -print0)
+          done < <(find "$SIDECAR_DIR" -type d -path "*.framework/Versions/*" \
+                   -not -path "*.framework/Versions/*/*" -print0)
           # Pass 3 — each framework bundle (top level). Sets up
           #          Versions/Current symlink seal + outer Resources.
           fw=0
