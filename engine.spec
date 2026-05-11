@@ -39,6 +39,17 @@ a = Analysis(
         "tkinter",
         "tkinterdnd2",
         "tests",
+        # Test infra never runs inside the sidecar — strip it so the
+        # bundle is a few MB smaller and faster to extract.
+        "pytest",
+        "_pytest",
+        "pluggy",
+        "iniconfig",
+        # PyInstaller bundling itself
+        "PyInstaller",
+        "altgraph",
+        "pefile",
+        "pywin32-ctypes",
     ],
     noarchive=False,
 )

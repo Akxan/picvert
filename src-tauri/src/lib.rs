@@ -16,7 +16,9 @@ use std::sync::{
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+#[cfg(target_os = "macos")]
+use tauri::menu::Submenu;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -24,6 +26,7 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::oneshot;
 
 const SIDECAR_BIN: &str = if cfg!(windows) {
@@ -294,11 +297,16 @@ fn is_supported_ext(name: &str) -> bool {
     }
 }
 
-/// Recursively walk a folder and collect every supported file path. Stops
-/// at MAX_FILES_PER_DROP to avoid the UI choking on a 50k-file directory.
-fn walk_folder(root: &std::path::Path, out: &mut Vec<String>) {
-    const MAX_FILES_PER_DROP: usize = 5000;
-    if out.len() >= MAX_FILES_PER_DROP {
+const MAX_FILES_PER_DROP: usize = 5000;
+const MAX_WALK_DEPTH: u8 = 32; // guard against symlink loops / pathological trees
+
+/// Recursively walk a folder and collect every supported file path. Stops at
+/// MAX_FILES_PER_DROP or MAX_WALK_DEPTH (whichever comes first). Uses
+/// `symlink_metadata` + `file_type().is_dir()` so symlinks to directories
+/// don't get followed (avoids the "loop forever through /tmp/foo -> /tmp")
+/// failure mode reported on Windows junction points.
+fn walk_folder(root: &std::path::Path, out: &mut Vec<String>, depth: u8) {
+    if out.len() >= MAX_FILES_PER_DROP || depth >= MAX_WALK_DEPTH {
         return;
     }
     let entries = match std::fs::read_dir(root) {
@@ -310,33 +318,59 @@ fn walk_folder(root: &std::path::Path, out: &mut Vec<String>) {
             return;
         }
         let path = entry.path();
-        if path.is_dir() {
-            walk_folder(&path, out);
-        } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if is_supported_ext(name) {
-                if let Some(s) = path.to_str() {
-                    out.push(s.to_string());
+        let ft = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if ft.is_symlink() {
+            continue; // refuse to descend into symlinks at all
+        }
+        if ft.is_dir() {
+            walk_folder(&path, out, depth + 1);
+        } else if ft.is_file() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if is_supported_ext(name) {
+                    if let Some(s) = path.to_str() {
+                        out.push(s.to_string());
+                    }
                 }
             }
         }
     }
 }
 
+#[derive(Serialize)]
+pub struct ExpandResult {
+    paths: Vec<String>,
+    /// True if MAX_FILES_PER_DROP cut the walk short — UI uses this to warn
+    /// the user that not every file in the dropped folder made it through.
+    truncated: bool,
+}
+
 /// Given a list of paths (mix of files and folders), expand any folders
-/// recursively into their supported files. Used by the drag-drop and
-/// file-picker handlers so users can drag a whole folder of images.
+/// recursively into their supported files. Refuses relative paths to keep
+/// this command from being usable as a tunnel for renderer-relative
+/// filesystem traversal (drops always provide absolute paths, so this is
+/// purely defensive).
 #[tauri::command]
-fn expand_folders(paths: Vec<String>) -> Vec<String> {
+fn expand_folders(paths: Vec<String>) -> ExpandResult {
     let mut out: Vec<String> = Vec::new();
     for p in paths {
         let path = std::path::PathBuf::from(&p);
+        if !path.is_absolute() {
+            continue; // refuse silently — the dialog/drop always gives absolutes
+        }
         if path.is_dir() {
-            walk_folder(&path, &mut out);
+            walk_folder(&path, &mut out, 0);
         } else if path.is_file() {
             out.push(p);
         }
+        if out.len() >= MAX_FILES_PER_DROP {
+            break;
+        }
     }
-    out
+    let truncated = out.len() >= MAX_FILES_PER_DROP;
+    ExpandResult { paths: out, truncated }
 }
 
 /// Open a regular file with the OS's default app (Preview, Adobe Reader,
@@ -353,8 +387,8 @@ async fn open_file(app: AppHandle, path: String) -> Result<(), String> {
     if !meta.is_file() {
         return Err("refused: path is not a regular file".into());
     }
-    app.shell()
-        .open(p.to_string_lossy().to_string(), None)
+    app.opener()
+        .open_path(p.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| format!("open failed: {e}"))
 }
 
@@ -540,9 +574,8 @@ async fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if !p.is_dir() {
         return Err("refused: path is not a directory or does not exist".into());
     }
-    // ShellExt is already imported at the top of the module.
-    app.shell()
-        .open(p.to_string_lossy().to_string(), None)
+    app.opener()
+        .open_path(p.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| format!("open failed: {e}"))
 }
 
@@ -682,7 +715,7 @@ fn build_tray_with_labels(app: &AppHandle, labels: &TrayLabels) -> Result<()> {
         .and_then(|bytes| tauri::image::Image::from_bytes(&bytes).ok())
         .unwrap_or_else(|| app.default_window_icon().cloned().unwrap());
 
-    let mut builder = TrayIconBuilder::with_id("main")
+    let builder = TrayIconBuilder::with_id("main")
         .icon(tray_icon_image)
         // template-mode is macOS-only and only meaningful for the black icon;
         // the coloured Windows/Linux icons should render as-is.
@@ -734,6 +767,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        // window-state: persists position/size/maximized for both windows
+        // across launches. Default StateFlags don't include VISIBLE, so the
+        // compact window stays hidden on next launch as configured —
+        // exactly the behaviour we want.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(EngineHandle::default())
         .invoke_handler(tauri::generate_handler![
             engine_ping,
@@ -776,12 +815,19 @@ pub fn run() {
                 }
                 "compact" => {
                     // Keep the dragged capsule fully on-screen — without this
-                    // the user can drag it past any edge and lose it. We clamp
-                    // on every Moved event; the corrective set_position fires
-                    // a second Moved with an in-bounds value, which clamps to
-                    // itself (idempotent), so no infinite loop.
-                    if let WindowEvent::Moved(pos) = event {
-                        if let (Ok(Some(monitor)), Ok(size)) = (window.current_monitor(), window.outer_size()) {
+                    // the user can drag it past any edge and lose it. Clamp
+                    // when the user FINISHES dragging (window loses focus
+                    // because cursor moved off it, or window blurs naturally)
+                    // rather than on every Moved frame — Moved fires once
+                    // per pixel during a drag and triggering set_position
+                    // hundreds of times per second causes visible judder on
+                    // Windows. Catching it on Focused(false) is one shot per
+                    // drag-end, and also handles cross-monitor drags where
+                    // current_monitor() flickers mid-drag.
+                    if let WindowEvent::Focused(false) = event {
+                        if let (Ok(Some(monitor)), Ok(size), Ok(pos)) =
+                            (window.current_monitor(), window.outer_size(), window.outer_position())
+                        {
                             let m_pos = monitor.position();
                             let m_size = monitor.size();
                             let max_x = m_pos.x + m_size.width as i32 - size.width as i32;
@@ -858,16 +904,23 @@ pub fn run() {
                 eprintln!("failed to build tray icon: {e:#}");
             }
 
-            // Park the (still-hidden) compact window near the top-right of
-            // the primary monitor — once. After this, drags are preserved
-            // because show_compact_window doesn't touch position.
+            // First-launch default for the compact window: top-right of the
+            // primary monitor. On subsequent launches the window-state plugin
+            // has already restored the user's last position (a non-zero
+            // value), so we leave it alone — only initialise when we see the
+            // (0,0) default that means "no state restored".
             if let Some(w) = app.get_webview_window("compact") {
-                if let Ok(Some(monitor)) = w.current_monitor() {
-                    let size = monitor.size();
-                    let pos = monitor.position();
-                    let x = pos.x + size.width as i32 - 320; // 280 + 40 gutter
-                    let y = pos.y + 60;
-                    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                let needs_init = w.outer_position()
+                    .map(|p| p.x == 0 && p.y == 0)
+                    .unwrap_or(true);
+                if needs_init {
+                    if let Ok(Some(monitor)) = w.current_monitor() {
+                        let m_size = monitor.size();
+                        let m_pos = monitor.position();
+                        let x = m_pos.x + m_size.width as i32 - 320; // 280 + 40 gutter
+                        let y = m_pos.y + 60;
+                        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    }
                 }
             }
 
