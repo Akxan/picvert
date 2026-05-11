@@ -392,11 +392,13 @@ fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<(), String> {
 /// JS-driven hide-main-and-show-capsule, called after the main window's
 /// exit animation has finished. We don't intercept the OS close event in
 /// Rust any more (that ran before the animation could play).
+///
+/// IMPORTANT: do NOT hide main here. Defer to show_compact_window which
+/// guarantees a visible window across the transition (otherwise we
+/// race a moment where all webview windows are hidden and macOS may
+/// quietly tear down the app before compact finishes building).
 #[tauri::command]
 fn hide_main_show_compact(app: AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
-    }
     show_compact_window(app)
 }
 
