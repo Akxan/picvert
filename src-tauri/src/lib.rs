@@ -396,7 +396,8 @@ struct UpdateCheckResult {
 }
 
 /// Ask tauri-plugin-updater whether a newer release is on the configured
-/// endpoint. We don't auto-install — the dialog wants to tell the user first.
+/// endpoint. We don't auto-install — JS confirms with the user first
+/// and then calls install_update.
 #[tauri::command]
 async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResult, String> {
     let updater = app
@@ -413,6 +414,26 @@ async fn check_for_updates(app: AppHandle) -> Result<UpdateCheckResult, String> 
         }),
         Err(e) => Err(format!("check failed: {e}")),
     }
+}
+
+/// Download + minisign-verify + install the latest release, then restart.
+/// Only call AFTER check_for_updates returned available=true and the user
+/// confirmed.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let updater = app
+        .updater()
+        .map_err(|e| format!("updater unavailable: {e}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("check failed: {e}"))?
+        .ok_or_else(|| "no update available".to_string())?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("install failed: {e}"))?;
+    app.restart();
 }
 
 /// Called by the frontend whenever the user changes the UI language so the
@@ -761,6 +782,7 @@ pub fn run() {
             show_compact_window,
             open_path,
             check_for_updates,
+            install_update,
             set_tray_labels,
             http_get_text,
             notify,

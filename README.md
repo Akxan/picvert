@@ -5,7 +5,7 @@ A native desktop shell (Tauri) backed by a Python engine.
 
 | | |
 |---|---|
-| **Platforms** | macOS · Windows · Linux |
+| **Platforms** | macOS (Apple Silicon) · Windows x86_64 |
 | **Auto-update** | ✅ via GitHub Releases |
 | **License** | Apache-2.0 |
 | **Status** | 1.2.1 |

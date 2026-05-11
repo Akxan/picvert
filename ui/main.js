@@ -240,6 +240,27 @@ async function init() {
   } catch (err) {
     console.error("list_formats failed", err);
   }
+
+  // Silent background update check 5 s after launch. If a newer release
+  // exists, ask the user via a native confirm dialog; on yes, kick off
+  // download + install + restart.
+  setTimeout(async () => {
+    try {
+      const r = await invoke("check_for_updates");
+      if (!r?.available) return;
+      const ask = window.__TAURI__?.dialog?.ask;
+      if (!ask) return;
+      const yes = await ask(
+        t("update_prompt", { ver: r.version }),
+        { title: t("title"), kind: "info", okLabel: t("update_install_now"), cancelLabel: t("update_later") }
+      );
+      if (!yes) return;
+      toast(t("update_installing"), "info", 8000);
+      await invoke("install_update");
+    } catch (err) {
+      console.warn("startup update check failed:", err);
+    }
+  }, 5000);
 }
 
 // ─── file pickers / drop ──────────────────────────────────────────────────
